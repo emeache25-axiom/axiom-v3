@@ -65,6 +65,11 @@ class Axiom:
                 "refrescar_coins":   self._refrescar_coins,
                 "inventariar_coins": self._inventariar_coins,
             })
+            # Al arrancar, una sola consulta: ¿falta alguna foto? Reemplaza al
+            # chequeo cada minuto que había antes. Se apoya en lo que
+            # efectivamente se guardó, no en una variable en memoria que un
+            # reinicio borra.
+            await planificador.recuperar_dias_faltantes(self.pool)
 
         logger.info("[axiom] arrancado")
 

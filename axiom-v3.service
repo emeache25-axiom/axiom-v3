@@ -1,5 +1,5 @@
 [Unit]
-Description=AXIOM v3 — captura y núcleo
+Description=AXIOM v3 — API, captura y núcleo
 After=network.target postgresql.service
 
 [Service]
@@ -7,7 +7,7 @@ Type=simple
 User=migue
 WorkingDirectory=/home/migue/apps/axiom-v3
 EnvironmentFile=/home/migue/apps/axiom-v3/.env
-ExecStart=/home/migue/apps/axiom-v3/venv/bin/python -m backend.app
+ExecStart=/home/migue/apps/axiom-v3/venv/bin/uvicorn backend.servidor:app --host 0.0.0.0 --port 8003
 Restart=always
 RestartSec=10
 StandardOutput=journal

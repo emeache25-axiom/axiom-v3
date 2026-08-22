@@ -45,41 +45,115 @@ logger = logging.getLogger(__name__)
 
 _scheduler: AsyncIOScheduler | None = None
 
-# Último día UTC visto. Sirve para detectar el cambio de día una sola vez,
-# aunque el chequeo corra cada minuto.
-_ultimo_dia: date | None = None
+
+# ══ El cierre del día UTC ════════════════════════════════════════════════════
+#
+# NO se chequea periódicamente: se PROGRAMA el despertar.
+#
+# El cierre del día no tiene productor —nadie nos avisa que cambió el día, es
+# una propiedad del tiempo, no un hecho de un sistema—. Pero eso no obliga a
+# preguntarse a cada rato si ya pasó: se sabe EXACTAMENTE cuándo va a pasar.
+#
+# Una primera versión chequeaba cada minuto por si el proceso había estado
+# caído a medianoche. Eran 1.440 comprobaciones diarias para detectar algo que
+# ocurre una vez, y el argumento de que "cada una cuesta cero" es justamente
+# cómo se degradan los sistemas: mil cosas ejecutándose por las dudas sí
+# cuestan.
+#
+# El caso del proceso caído se resuelve mejor y aparte: al arrancar se
+# verifica si falta alguna foto. Eso consulta la base UNA vez y además es más
+# confiable, porque se apoya en lo que efectivamente se guardó y no en una
+# variable en memoria que un reinicio borra.
 
 
-# ══ Detección de eventos temporales ══════════════════════════════════════════
-
-async def _detectar_cambio_de_dia() -> None:
+async def _cerro_el_dia() -> None:
     """
-    Publica `cierre_vela_diaria` cuando cambia el día UTC.
+    Publica `cierre_vela_diaria`. Lo dispara el cron de las 00:05 UTC.
 
-    Corre cada minuto pero publica UNA sola vez por día: compara contra el
-    último día visto en vez de confiar en la hora exacta. Así, si el proceso
-    estuvo caído a las 00:00, el evento se publica igual al levantarse — cosa
-    que un cron a las 00:00 no haría.
+    Se retrata el día que CERRÓ, no el que empieza: fotografiar el día nuevo
+    daría datos de cinco minutos de antigüedad.
+
+    Los 5 minutos de margen existen porque a las 00:00 en punto las fuentes
+    todavía están cerrando sus propias velas.
     """
-    global _ultimo_dia
+    from datetime import timedelta
+    ayer = datetime.now(timezone.utc).date() - timedelta(days=1)
+    logger.info("[planificador] cerró el día UTC %s", ayer)
+    await _bus.bus.publicar(
+        _bus.CIERRE_VELA_DIARIA,
+        {"dia_cerrado": str(ayer)},
+        origen="planificador")
+
+
+async def recuperar_dias_faltantes(pool, dias_atras: int = 7) -> dict:
+    """
+    Al arrancar: ¿falta alguna foto? Recupera SOLO la del día que acaba de
+    cerrar; las anteriores se declaran como huecos.
+
+    Reemplaza al chequeo periódico: una consulta al arrancar en vez de 1.440
+    comprobaciones diarias, y además se apoya en lo que efectivamente se
+    guardó, no en una variable en memoria que un reinicio borra.
+
+    ═══ POR QUÉ SOLO EL DÍA DE AYER ═══════════════════════════════════════
+
+    `fotografiar()` retrata lo que hay en `coins` AHORA y le pone la fecha que
+    se le pida. Para el día que acaba de cerrar eso es correcto: los datos
+    actuales SON los de ese cierre.
+
+    Para días anteriores es FABRICAR. Una fila con fecha 2026-08-20 y precios
+    del 22 es un dato falso que se ve perfectamente plausible — la peor clase
+    de error, porque nada lo delata después.
+
+    Pasó de verdad: la primera versión de esta función publicaba el evento para
+    el día faltante más reciente, sin importar cuál fuera, y generó una foto
+    del 20 con datos del 22.
+
+    Un HUECO DECLARADO es mejor que un dato inventado. Los días que faltan se
+    reportan y quedan visibles; no se rellenan.
+    """
+    from datetime import timedelta
+
     hoy = datetime.now(timezone.utc).date()
+    ayer = hoy - timedelta(days=1)
+    esperados = {hoy - timedelta(days=d) for d in range(1, dias_atras + 1)}
 
-    if _ultimo_dia is None:
-        # Primer chequeo tras arrancar: se toma nota sin publicar. Publicar acá
-        # dispararía el evento en cada reinicio, y un reinicio no es un cierre
-        # de vela.
-        _ultimo_dia = hoy
-        logger.info("[planificador] día UTC en curso: %s", hoy)
-        return
+    async with pool.acquire() as conn:
+        filas = await conn.fetch(
+            "SELECT DISTINCT fecha FROM coin_diaria WHERE fecha >= $1",
+            hoy - timedelta(days=dias_atras))
+    guardados = {f["fecha"] for f in filas}
+    faltantes = sorted(esperados - guardados)
 
-    if hoy != _ultimo_dia:
-        cerrado = _ultimo_dia
-        _ultimo_dia = hoy
-        logger.info("[planificador] cerró el día UTC %s", cerrado)
+    if not faltantes:
+        logger.info("[planificador] sin huecos en los últimos %d días", dias_atras)
+        return {"faltantes": [], "recuperado": None}
+
+    huecos = [str(f) for f in faltantes]
+
+    # Solo si falta AYER se puede recuperar: sus datos son los de ahora.
+    if ayer in faltantes:
+        logger.info("[planificador] falta la foto de ayer (%s) — se recupera", ayer)
         await _bus.bus.publicar(
             _bus.CIERRE_VELA_DIARIA,
-            {"dia_cerrado": str(cerrado), "dia_nuevo": str(hoy)},
-            origen="planificador")
+            {"dia_cerrado": str(ayer), "recuperacion": True},
+            origen="planificador.recuperar")
+        huecos_restantes = [h for h in huecos if h != str(ayer)]
+    else:
+        huecos_restantes = huecos
+
+    if huecos_restantes:
+        # NO se rellenan: no hay forma de saber qué valía cada coin ese día.
+        # Se declara el hueco para que sea visible en vez de quedar oculto.
+        logger.warning(
+            "[planificador] HUECOS sin recuperar: %s — no se rellenan porque "
+            "la fuente da el estado de HOY, no el de esos días",
+            ", ".join(huecos_restantes))
+
+    return {
+        "faltantes": huecos,
+        "recuperado": str(ayer) if ayer in faltantes else None,
+        "huecos_declarados": huecos_restantes,
+    }
 
 
 # ══ Registro de tareas ═══════════════════════════════════════════════════════
@@ -119,14 +193,20 @@ def iniciar(tareas: dict) -> AsyncIOScheduler:
 
     _scheduler = AsyncIOScheduler(timezone="UTC")
 
-    # ── Detección de eventos: cada minuto, publica solo cuando algo cambia ──
+    # ── El cierre del día: se PROGRAMA, no se chequea ───────────────────────
+    # 00:05 UTC y no 00:00: a las cero en punto las fuentes todavía están
+    # cerrando sus propias velas.
     _scheduler.add_job(
-        _detectar_cambio_de_dia,
-        trigger=IntervalTrigger(minutes=1),
-        id="detectar_dia",
-        name="Detectar cierre del día UTC",
+        _cerro_el_dia,
+        trigger=CronTrigger(hour=0, minute=5),
+        id="cierre_del_dia",
+        name="Cierre del día UTC",
         max_instances=1,
         coalesce=True,
+        # Si el proceso estuvo caído en ese momento, APScheduler lo dispara al
+        # levantarse dentro de las 2 h. Más tarde que eso lo resuelve
+        # `recuperar_dias_faltantes`, que mira lo que efectivamente falta.
+        misfire_grace_time=7200,
     )
 
     # ── Traer datos: esto SÍ es temporal ────────────────────────────────────

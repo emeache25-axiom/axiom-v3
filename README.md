@@ -44,11 +44,31 @@ backend/app.py                   el único lugar donde se conecta todo
 ```bash
 # a mano
 venv/bin/python scripts/capturar.py todo
+venv/bin/python scripts/salud.py --historial 10
 
-# como servicio
+# como servicio (API + captura en el mismo proceso, puerto 8003)
 sudo cp axiom-v3.service /etc/systemd/system/
 sudo systemctl enable --now axiom-v3
 ```
+
+### La API
+
+Pocas rutas escritas a mano: casi todo se expone por **una ruta genérica** que
+resuelve cualquier capacidad del registro. Agregar una capacidad no requiere
+endpoint nuevo.
+
+| Ruta | Qué |
+|---|---|
+| `POST /api/capacidad/{nombre}` | resuelve cualquier capacidad declarada |
+| `GET /api/capacidades` | el catálogo: qué existe y qué declara cada una |
+| `GET /api/sistema/estado` | universo, planificador, bus, salud |
+| `GET /api/sistema/ejecuciones` | historial: qué corrió, por qué, qué devolvió |
+| `GET /api/sistema/fuentes` | fuentes con sus límites y qué ofrece cada una |
+| `GET /docs` | documentación automática |
+
+> v2 tenía 18 routers montados a mano y nadie tenía la lista completa: el
+> inventario encontró tres bajo el mismo prefijo, uno sin una sola llamada en
+> siete días.
 
 ### Lo que hace solo
 
