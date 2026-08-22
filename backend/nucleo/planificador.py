@@ -95,13 +95,13 @@ def _envolver(nombre: str, corrutina, *args, **kwargs):
     Acá se loguea Y se relanza: el scheduler tiene que saber que falló.
     """
     async def _tarea():
-        try:
-            r = await corrutina(*args, **kwargs)
-            logger.info("[planificador] %s: %s", nombre, r)
-            return r
-        except Exception as exc:
-            logger.error("[planificador] %s FALLÓ: %s", nombre, exc)
-            raise
+        from backend.nucleo.registro import registro as _reg
+        # El registro relanza si falla, así que el scheduler se entera. En v2
+        # el try/except devolvía normalmente y APScheduler anotaba
+        # "executed successfully" mientras el job fallaba en cada corrida.
+        r = await _reg.ejecutar(nombre, "planificador", corrutina, *args, **kwargs)
+        logger.info("[planificador] %s: %s", nombre, r)
+        return r
     _tarea.__name__ = f"tarea_{nombre}"
     return _tarea
 
@@ -132,7 +132,7 @@ def iniciar(tareas: dict) -> AsyncIOScheduler:
     # ── Traer datos: esto SÍ es temporal ────────────────────────────────────
     if "refrescar_coins" in tareas:
         _scheduler.add_job(
-            _envolver("refresco de coins", tareas["refrescar_coins"]),
+            _envolver("refrescar_coins", tareas["refrescar_coins"]),
             trigger=IntervalTrigger(hours=6),
             id="refrescar_coins",
             name="Refrescar precios y ranking de coins",
@@ -145,7 +145,7 @@ def iniciar(tareas: dict) -> AsyncIOScheduler:
 
     if "inventariar_coins" in tareas:
         _scheduler.add_job(
-            _envolver("inventario", tareas["inventariar_coins"]),
+            _envolver("inventariar_coins", tareas["inventariar_coins"]),
             # Una vez al día alcanza: las coins nuevas no aparecen cada hora, y
             # es una sola llamada.
             trigger=CronTrigger(hour=1, minute=0),

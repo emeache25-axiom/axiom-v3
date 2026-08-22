@@ -152,9 +152,11 @@ class Bus:
 
         async def _correr(etiqueta: str, m: Manejador):
             try:
-                r = m(evento)
-                if inspect.isawaitable(r):
-                    await r
+                # Registro TRANSPARENTE: el manejador no sabe que existe y no
+                # tiene que acordarse de nada. En v2 registrar dependía de que
+                # cada job lo hiciera, y por eso quedaron cosas afuera.
+                from backend.nucleo.registro import registro as _reg
+                await _reg.ejecutar(etiqueta, f"evento:{tipo}", m, evento)
                 return etiqueta, None
             except Exception as e:
                 # Aislado a propósito: un manejador que falla no puede impedir

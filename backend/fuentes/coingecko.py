@@ -25,6 +25,8 @@ Ver AXIOM_v3_declaraciones.md §1
 """
 from __future__ import annotations
 
+import os
+
 from backend.fuentes.cliente import Fuente, Endpoint, Limites
 
 # ── Límites ──────────────────────────────────────────────────────────────────
@@ -32,7 +34,7 @@ from backend.fuentes.cliente import Fuente, Endpoint, Limites
 # margen: llegar al tope y comerse un 429 cuesta más tiempo que ir un poco más
 # lento. El reintento existe igual, pero como red, no como método.
 _LIMITES = Limites(
-    llamadas_por_minuto=25,
+    llamadas_por_minuto=80,
     reintentos=4,
     respeta_retry_after=True,
     espera_base_s=5.0,
@@ -41,9 +43,26 @@ _LIMITES = Limites(
 )
 
 
+# La API key va en el .env, nunca en el código ni en el repo.
+#
+# MEDIDO el 21/08/2026 — refresco completo de 12 páginas:
+#     sin clave  → 2-4 cortes de 60 s · 2m10s
+#     con clave  → CERO cortes · 8,7 s
+#
+# El límite sin clave (4-6 llamadas/min) lo aplica Cloudflare en el borde y no
+# se informa en headers: solo avisa cuando ya te pasaste. El plan Demo da 100
+# por minuto.
+#
+# Contrapartida declarada: el plan Demo EXIGE mostrar una línea de atribución
+# a CoinGecko en cualquier producto que use sus datos.
+_API_KEY = os.environ.get("COINGECKO_API_KEY", "")
+_HEADERS = {"x-cg-demo-api-key": _API_KEY} if _API_KEY else {}
+
+
 COINGECKO = Fuente(
     nombre="coingecko",
     base_url="https://api.coingecko.com/api/v3",
+    headers=_HEADERS,
     limites=_LIMITES,
     ofrece=("precio", "capitalizacion", "ranking", "categorias",
             "inventario", "dominancia"),

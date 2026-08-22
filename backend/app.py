@@ -24,6 +24,7 @@ from backend.fuentes.cliente import ClienteFuentes
 from backend.fuentes.coingecko import COINGECKO
 from backend.nucleo import bus as _bus
 from backend.nucleo import planificador
+from backend.nucleo.registro import registro
 from backend.captura import universo
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,7 @@ class Axiom:
 
     async def arrancar(self, con_planificador: bool = True) -> None:
         self.pool = await asyncpg.create_pool(dsn(), min_size=2, max_size=10)
+        registro.conectar(self.pool)
         self.fuentes.registrar(COINGECKO)
         await self.fuentes.abrir()
 
@@ -103,6 +105,10 @@ class Axiom:
         fecha = date.fromisoformat(cerrado) if cerrado else None
         r = await universo.fotografiar(self.pool, fecha=fecha)
         logger.info("[axiom] foto del día cerrado: %s", r)
+        # Devolver importa: es lo que queda en `ejecuciones.resultado` y lo que
+        # permite detectar una falla parcial. Un manejador que no devuelve nada
+        # se registra como 'ok' sin decir qué hizo.
+        return r
 
     async def _registrar_cambio_de_universo(self, evento) -> None:
         """
@@ -119,6 +125,7 @@ class Axiom:
                            len(bajas), ", ".join(bajas[:10]))
         if altas:
             logger.info("[axiom] altas en el universo: %d", len(altas))
+        return {"altas": len(altas), "bajas": len(bajas)}
 
     # ── Tareas del planificador ─────────────────────────────────────────────
     async def _refrescar_coins(self):
@@ -133,6 +140,7 @@ class Axiom:
             "universo": await universo.estado(self.pool),
             "planificador": planificador.estado(),
             "bus": _bus.bus.estado(),
+            "salud": await registro.salud(horas=24),
         }
 
 
