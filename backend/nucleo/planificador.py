@@ -66,23 +66,80 @@ _scheduler: AsyncIOScheduler | None = None
 # variable en memoria que un reinicio borra.
 
 
-async def _cerro_el_dia() -> None:
+# Hasta qué hora del día siguiente tiene sentido guardar "el cierre de ayer".
+# Pasado eso los datos ya derivaron demasiado: guardarlos sería registrar el
+# mediodía de hoy con la fecha de ayer. Un HUECO DECLARADO es mejor.
+VENTANA_REINTENTO_H = 4
+
+
+async def _hay_foto(pool, fecha) -> bool:
+    async with pool.acquire() as conn:
+        return bool(await conn.fetchval(
+            "SELECT 1 FROM coin_diaria WHERE fecha = $1 LIMIT 1", fecha))
+
+
+async def cerrar_el_dia(pool, intento: int = 1) -> dict:
     """
-    Publica `cierre_vela_diaria`. Lo dispara el cron de las 00:05 UTC.
+    Publica `cierre_vela_diaria` para el día que acaba de cerrar.
 
-    Se retrata el día que CERRÓ, no el que empieza: fotografiar el día nuevo
-    daría datos de cinco minutos de antigüedad.
+    Retrata el día que CERRÓ, no el que empieza: fotografiar el día nuevo daría
+    datos de cinco minutos de antigüedad.
 
-    Los 5 minutos de margen existen porque a las 00:00 en punto las fuentes
-    todavía están cerrando sus propias velas.
+    Idempotente: si la foto de ayer ya existe, no vuelve a publicar. Eso permite
+    que el reintento horario lo llame sin miedo.
     """
     from datetime import timedelta
     ayer = datetime.now(timezone.utc).date() - timedelta(days=1)
-    logger.info("[planificador] cerró el día UTC %s", ayer)
-    await _bus.bus.publicar(
+
+    if await _hay_foto(pool, ayer):
+        return {"dia": str(ayer), "estado": "ya_estaba", "intento": intento}
+
+    logger.info("[planificador] cerró el día UTC %s (intento %d)", ayer, intento)
+    r = await _bus.bus.publicar(
         _bus.CIERRE_VELA_DIARIA,
-        {"dia_cerrado": str(ayer)},
+        {"dia_cerrado": str(ayer), "intento": intento},
         origen="planificador")
+    return {"dia": str(ayer), "estado": "publicado",
+            "intento": intento, "suscriptores": r["suscriptores"],
+            "fallos": r["fallos"]}
+
+
+async def reintentar_cierre(pool) -> dict:
+    """
+    Verifica cada hora si la foto de ayer llegó a guardarse, y reintenta.
+
+    ES UN CHEQUEO PERIÓDICO, y eso normalmente se evita —el cierre del día se
+    programa, no se comprueba—. Acá está justificado y la diferencia importa:
+
+      · verifica algo IRRECUPERABLE. Si la captura de las 00:05 falló porque la
+        fuente estaba caída, ese día no existe nunca más. Es lo único del
+        sistema que merece insistir.
+      · una vez que la foto está, el chequeo es una consulta trivial que
+        devuelve "ya estaba" y no hace nada.
+      · tiene LÍMITE: pasadas VENTANA_REINTENTO_H se declara el hueco y se deja
+        de intentar. Un dato del mediodía guardado como cierre de ayer sería
+        peor que la ausencia.
+    """
+    from datetime import timedelta
+    ahora = datetime.now(timezone.utc)
+    ayer = ahora.date() - timedelta(days=1)
+
+    if await _hay_foto(pool, ayer):
+        return {"dia": str(ayer), "estado": "ya_estaba"}
+
+    if ahora.hour >= VENTANA_REINTENTO_H:
+        # Fuera de ventana: se declara el hueco y no se intenta más hoy.
+        logger.warning(
+            "[planificador] HUECO en %s — pasaron más de %d h del cierre y los "
+            "datos actuales ya no representan ese día. No se rellena.",
+            ayer, VENTANA_REINTENTO_H)
+        return {"dia": str(ayer), "estado": "hueco_declarado",
+                "motivo": f"fuera de la ventana de {VENTANA_REINTENTO_H} h"}
+
+    intento = ahora.hour + 1
+    logger.warning("[planificador] falta la foto de %s — reintento %d",
+                   ayer, intento)
+    return await cerrar_el_dia(pool, intento=intento)
 
 
 async def recuperar_dias_faltantes(pool, dias_atras: int = 7) -> dict:
@@ -197,7 +254,7 @@ def iniciar(tareas: dict) -> AsyncIOScheduler:
     # 00:05 UTC y no 00:00: a las cero en punto las fuentes todavía están
     # cerrando sus propias velas.
     _scheduler.add_job(
-        _cerro_el_dia,
+        _envolver("cierre_del_dia", tareas["cerrar_el_dia"]),
         trigger=CronTrigger(hour=0, minute=5),
         id="cierre_del_dia",
         name="Cierre del día UTC",
@@ -208,6 +265,20 @@ def iniciar(tareas: dict) -> AsyncIOScheduler:
         # `recuperar_dias_faltantes`, que mira lo que efectivamente falta.
         misfire_grace_time=7200,
     )
+
+    # ── Red de seguridad de lo IRRECUPERABLE ────────────────────────────────
+    # Cada hora, dentro de la ventana, verifica si la foto de ayer llegó a
+    # guardarse. Es un chequeo periódico y normalmente se evita — acá está
+    # justificado porque si ese dato no se captura, ese día no existe más.
+    if "reintentar_cierre" in tareas:
+        _scheduler.add_job(
+            _envolver("reintentar_cierre", tareas["reintentar_cierre"]),
+            trigger=CronTrigger(hour=f"1-{VENTANA_REINTENTO_H}", minute=5),
+            id="reintentar_cierre",
+            name="Reintento del cierre del día",
+            max_instances=1,
+            coalesce=True,
+        )
 
     # ── Traer datos: esto SÍ es temporal ────────────────────────────────────
     if "refrescar_coins" in tareas:

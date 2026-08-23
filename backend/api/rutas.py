@@ -148,6 +148,22 @@ async def fuentes(request: Request) -> dict:
     }
 
 
+@sistema.get("/monitor")
+async def monitor(request: Request, horas: int = 24) -> dict:
+    """
+    Qué pasó, qué está pasando, qué pasará — y qué DEBÍA pasar y no pasó.
+
+    Esa última es la más valiosa: no es un evento sino la AUSENCIA de uno, así
+    que ningún registro la contiene. Se detecta cruzando lo esperado contra lo
+    registrado.
+    """
+    from backend.nucleo.monitor import monitor as _monitor
+    from backend.nucleo import planificador
+    from backend.nucleo.bus import bus as _bus
+    ax = request.app.state.axiom
+    return await _monitor(ax.pool, planificador._scheduler, _bus, horas)
+
+
 @sistema.get("/eventos")
 async def eventos(request: Request) -> dict:
     """Qué eventos existen, quién escucha cada uno y cuántos se publicaron."""

@@ -62,6 +62,8 @@ class Axiom:
 
         if con_planificador:
             planificador.iniciar({
+                "cerrar_el_dia":     self._cerrar_el_dia,
+                "reintentar_cierre": self._reintentar_cierre,
                 "refrescar_coins":   self._refrescar_coins,
                 "inventariar_coins": self._inventariar_coins,
             })
@@ -133,6 +135,12 @@ class Axiom:
         return {"altas": len(altas), "bajas": len(bajas)}
 
     # ── Tareas del planificador ─────────────────────────────────────────────
+    async def _cerrar_el_dia(self):
+        return await planificador.cerrar_el_dia(self.pool)
+
+    async def _reintentar_cierre(self):
+        return await planificador.reintentar_cierre(self.pool)
+
     async def _refrescar_coins(self):
         return await universo.refrescar(self.pool, self.fuentes)
 

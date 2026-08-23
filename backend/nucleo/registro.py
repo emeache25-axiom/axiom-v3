@@ -91,44 +91,94 @@ class Registro:
             logger.warning("[registro] no se pudo anotar %s: %s",
                            fila.get("que"), e)
 
-    async def ejecutar(self, que: str, disparador: str,
-                       funcion: Callable, *args, **kwargs) -> Any:
+    async def _abrir(self, que: str, disparador: str, intento: int) -> int | None:
         """
-        Ejecuta algo y lo registra. Devuelve lo que devolvió la función.
+        Anota que ALGO EMPEZÓ y devuelve su id.
+
+        Sin esto, una tarea en curso no aparece en ningún lado y una tarea
+        colgada es indistinguible de una que nunca arrancó. El monitor tiene
+        que poder decir qué está pasando ahora, no solo qué pasó.
+        """
+        if self.pool is None:
+            return None
+        try:
+            async with self.pool.acquire() as conn:
+                return await conn.fetchval("""
+                    INSERT INTO ejecuciones (que, disparador, inicio, estado,
+                                             intento)
+                    VALUES ($1, $2, now(), 'en_curso', $3)
+                    RETURNING id
+                """, que, disparador, intento)
+        except Exception as e:
+            logger.warning("[registro] no se pudo abrir %s: %s", que, e)
+            return None
+
+    async def _cerrar(self, id_: int | None, estado: str,
+                      resultado: Any = None, error: str | None = None,
+                      traza: str | None = None) -> None:
+        """Cierra una ejecución abierta. Si no se pudo abrir, no hay qué cerrar."""
+        if self.pool is None or id_ is None:
+            return
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute("""
+                    UPDATE ejecuciones SET
+                        fin          = now(),
+                        duracion_seg = ROUND(EXTRACT(EPOCH FROM (now() - inicio))::numeric, 3),
+                        estado       = $2,
+                        resultado    = $3::jsonb,
+                        error        = $4,
+                        traza        = $5
+                    WHERE id = $1
+                """, id_, estado, resultado, error, traza)
+        except Exception as e:
+            logger.warning("[registro] no se pudo cerrar %s: %s", id_, e)
+
+    async def ejecutar(self, que: str, disparador: str,
+                       funcion: Callable, *args, intento: int = 1,
+                       **kwargs) -> Any:
+        """
+        Ejecuta algo y lo registra: al empezar y al terminar.
 
         Si falla: registra el error con su traza y RELANZA. Quien llamó decide
         qué hacer — pero nadie puede ignorar que falló, que es exactamente lo
         que pasaba en v2.
         """
-        inicio = datetime.now(timezone.utc)
+        id_ = await self._abrir(que, disparador, intento)
         try:
             r = funcion(*args, **kwargs)
             if inspect.isawaitable(r):
                 r = await r
         except Exception as e:
-            fin = datetime.now(timezone.utc)
-            await self._guardar({
-                "que": que, "disparador": disparador,
-                "inicio": inicio, "fin": fin,
-                "duracion_seg": round((fin - inicio).total_seconds(), 3),
-                "estado": "error",
-                "resultado": None,
-                "error": str(e)[:2000],
-                "traza": "".join(_tb.format_exception(
-                    type(e), e, e.__traceback__))[:_MAX_TRAZA],
-            })
+            await self._cerrar(
+                id_, "error", None, str(e)[:2000],
+                "".join(_tb.format_exception(
+                    type(e), e, e.__traceback__))[:_MAX_TRAZA])
             logger.error("[registro] %s (%s) FALLÓ: %s", que, disparador, e)
             raise
 
-        fin = datetime.now(timezone.utc)
-        await self._guardar({
-            "que": que, "disparador": disparador,
-            "inicio": inicio, "fin": fin,
-            "duracion_seg": round((fin - inicio).total_seconds(), 3),
-            "estado": "ok",
-            "resultado": _serializable(r),
-        })
+        await self._cerrar(id_, "ok", _serializable(r))
         return r
+
+    async def en_curso(self) -> list[dict]:
+        """
+        Qué está corriendo AHORA.
+
+        Una fila con muchos minutos acá es una tarea colgada — y esa distinción
+        no existía antes: sin registro de inicio, colgada y nunca-arrancada se
+        veían igual.
+        """
+        if self.pool is None:
+            return []
+        async with self.pool.acquire() as conn:
+            filas = await conn.fetch("""
+                SELECT id, que, disparador, inicio, intento,
+                       ROUND(EXTRACT(EPOCH FROM (now() - inicio))::numeric, 1)
+                           AS corriendo_hace_seg
+                FROM ejecuciones WHERE estado = 'en_curso'
+                ORDER BY inicio
+            """)
+        return [dict(f) for f in filas]
 
     # ── Consulta ────────────────────────────────────────────────────────────
     async def historial(self, limite: int = 50, que: str | None = None) -> list[dict]:
@@ -137,7 +187,7 @@ class Registro:
         async with self.pool.acquire() as conn:
             filas = await conn.fetch("""
                 SELECT id, que, disparador, inicio, duracion_seg, estado,
-                       resultado, LEFT(error, 300) AS error
+                       intento, resultado, LEFT(error, 300) AS error
                 FROM ejecuciones
                 WHERE ($2::text IS NULL OR que = $2)
                 ORDER BY id DESC LIMIT $1
