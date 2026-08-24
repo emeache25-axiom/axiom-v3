@@ -25,7 +25,7 @@ from backend.nucleo import config as _config
 from backend.nucleo import bus as _bus
 from backend.nucleo import planificador
 from backend.nucleo.registro import registro
-from backend.captura import universo
+from backend.captura import universo, pares, metricas
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +80,7 @@ class Axiom:
                 "reintentar_cierre": self._reintentar_cierre,
                 "refrescar_coins":   self._refrescar_coins,
                 "inventariar_coins": self._inventariar_coins,
+                "catalogar_pares":   self._catalogar_pares,
             })
             # Al arrancar, una sola consulta: ¿falta alguna foto? Reemplaza al
             # chequeo cada minuto que había antes. Se apoya en lo que
@@ -108,6 +109,14 @@ class Axiom:
         _bus.bus.suscribir(
             _bus.CIERRE_VELA_DIARIA, self._fotografiar_al_cerrar_dia,
             "foto_diaria_del_universo")
+
+        # Las velas de pares también van al cerrar el día: es cuando hay una
+        # vela nueva y completa. Va como suscriptor SEPARADO de la foto de
+        # coins — si CoinGecko está caído, eso no debe impedir capturar velas
+        # de MEXC. Son dos cosas sin relación entre sí.
+        _bus.bus.suscribir(
+            _bus.CIERRE_VELA_DIARIA, self._capturar_velas_de_pares,
+            "velas_diarias_de_pares")
 
         _bus.bus.suscribir(
             _bus.CAMBIO_DE_UNIVERSO, self._registrar_cambio_de_universo,
@@ -155,6 +164,23 @@ class Axiom:
     async def _reintentar_cierre(self):
         return await planificador.reintentar_cierre(self.pool)
 
+    async def _capturar_velas_de_pares(self, evento) -> dict:
+        """
+        Velas diarias y métricas derivadas.
+
+        El orden importa: primero las velas, después las métricas — que se
+        calculan SOBRE las velas. Y la vinculación al final, porque necesita
+        que el catálogo de pares esté al día.
+        """
+        r = await pares.capturar_velas(self.pool)
+        m = await metricas.calcular(self.pool)
+        return {"velas": r, "metricas": m}
+
+    async def _catalogar_pares(self):
+        r = await pares.catalogar(self.pool)
+        v = await metricas.vincular_con_coins(self.pool)
+        return {"catalogo": r, "vinculos": v}
+
     async def _refrescar_coins(self):
         return await universo.refrescar(self.pool, self.fuentes)
 
@@ -165,6 +191,7 @@ class Axiom:
     async def estado(self) -> dict:
         return {
             "universo": await universo.estado(self.pool),
+            "pares": await pares.estado(self.pool),
             "planificador": planificador.estado(),
             "bus": _bus.bus.estado(),
             "salud": await registro.salud(horas=24),

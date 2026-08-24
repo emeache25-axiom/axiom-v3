@@ -35,6 +35,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone, date
 
+from zoneinfo import ZoneInfo
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -44,6 +46,16 @@ from backend.nucleo import bus as _bus
 logger = logging.getLogger(__name__)
 
 _scheduler: AsyncIOScheduler | None = None
+
+# Los horarios de AXIOM son en UTC: el cierre del día es el cierre del día UTC,
+# no el de la zona donde esté el servidor.
+#
+# MEDIDO el 24/08/2026: AsyncIOScheduler(timezone="UTC") NO alcanza. El
+# CronTrigger toma la zona del SISTEMA al crearse, antes de que el scheduler le
+# imponga la suya — el scheduler decía UTC y el trigger decía
+# America/Argentina/Buenos_Aires, y el cierre se disparaba tres horas tarde.
+# Hay que pasarle la zona a CADA trigger.
+UTC = ZoneInfo("UTC")
 
 
 # ══ El cierre del día UTC ════════════════════════════════════════════════════
@@ -265,7 +277,7 @@ def iniciar(tareas: dict) -> AsyncIOScheduler:
     # cerrando sus propias velas.
     _scheduler.add_job(
         _envolver("cierre_del_dia", tareas["cerrar_el_dia"]),
-        trigger=CronTrigger(hour=0, minute=5),
+        trigger=CronTrigger(hour=0, minute=5, timezone=UTC),
         id="cierre_del_dia",
         name="Cierre del día UTC",
         max_instances=1,
@@ -283,7 +295,7 @@ def iniciar(tareas: dict) -> AsyncIOScheduler:
     if "reintentar_cierre" in tareas:
         _scheduler.add_job(
             _envolver("reintentar_cierre", tareas["reintentar_cierre"]),
-            trigger=CronTrigger(hour=f"1-{HASTA_HORA_UTC}", minute=5),
+            trigger=CronTrigger(hour=f"1-{HASTA_HORA_UTC}", minute=5, timezone=UTC),
             id="reintentar_cierre",
             name="Reintento del cierre del día",
             max_instances=1,
@@ -304,12 +316,25 @@ def iniciar(tareas: dict) -> AsyncIOScheduler:
             misfire_grace_time=3600,
         )
 
+    if "catalogar_pares" in tareas:
+        _scheduler.add_job(
+            _envolver("catalogar_pares", tareas["catalogar_pares"]),
+            # Después del inventario de coins: la vinculación par↔coin necesita
+            # que el catálogo de coins esté al día.
+            trigger=CronTrigger(hour=1, minute=30, timezone=UTC),
+            id="catalogar_pares",
+            name="Catálogo de pares de los exchanges",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=7200,
+        )
+
     if "inventariar_coins" in tareas:
         _scheduler.add_job(
             _envolver("inventariar_coins", tareas["inventariar_coins"]),
             # Una vez al día alcanza: las coins nuevas no aparecen cada hora, y
             # es una sola llamada.
-            trigger=CronTrigger(hour=1, minute=0),
+            trigger=CronTrigger(hour=1, minute=0, timezone=UTC),
             id="inventariar_coins",
             name="Inventario completo de la fuente",
             max_instances=1,
