@@ -25,7 +25,7 @@ from backend.nucleo import config as _config
 from backend.nucleo import bus as _bus
 from backend.nucleo import planificador
 from backend.nucleo.registro import registro
-from backend.captura import universo, pares, metricas
+from backend.captura import universo, pares
 
 logger = logging.getLogger(__name__)
 
@@ -165,20 +165,18 @@ class Axiom:
         return await planificador.reintentar_cierre(self.pool)
 
     async def _capturar_velas_de_pares(self, evento) -> dict:
-        """
-        Velas diarias y métricas derivadas.
-
-        El orden importa: primero las velas, después las métricas — que se
-        calculan SOBRE las velas. Y la vinculación al final, porque necesita
-        que el catálogo de pares esté al día.
-        """
-        r = await pares.capturar_velas(self.pool)
-        m = await metricas.calcular(self.pool)
-        return {"velas": r, "metricas": m}
+        """Velas diarias de los pares activos."""
+        return await pares.capturar_velas(self.pool)
 
     async def _catalogar_pares(self):
+        """
+        Qué pares existen y a qué coin corresponde cada uno.
+
+        La vinculación va acá y no aparte porque es parte de armar el catálogo:
+        un par sin saber a qué coin corresponde queda incompleto.
+        """
         r = await pares.catalogar(self.pool)
-        v = await metricas.vincular_con_coins(self.pool)
+        v = await pares.vincular_con_coins(self.pool)
         return {"catalogo": r, "vinculos": v}
 
     async def _refrescar_coins(self):

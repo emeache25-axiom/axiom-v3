@@ -125,63 +125,20 @@ CREATE INDEX IF NOT EXISTS idx_vela_par   ON vela_diaria (par_id, fecha DESC);
 CREATE INDEX IF NOT EXISTS idx_vela_fecha ON vela_diaria (fecha);
 
 
--- ═══════════════════════════════════════════════════════════════════════════
--- MÉTRICAS DEL PAR
--- ═══════════════════════════════════════════════════════════════════════════
+-- NOTA: las MÉTRICAS del par —rango típico, oscilación, repetibilidad— NO
+-- están acá a propósito.
 --
--- Derivadas de las velas. Se guardan —en vez de calcularse al vuelo— porque se
--- usan para COMPARAR y FILTRAR miles de pares entre sí: es el criterio de la
--- arquitectura para decidir qué va precalculado.
+-- No son captura: son derivaciones sobre datos que ya tenemos, sin ninguna
+-- fuente involucrada. En la arquitectura de v3 son CAPACIDADES simples del
+-- objeto par, y su forma de persistirse la define el registro de capacidades
+-- —el punto 2 del plan—, no esta migración.
 --
--- `hasta_fecha` NO es opcional: en v2, métricas calculadas hasta hace 20 días
--- se mostraban junto a otras del día anterior sin que nada las distinguiera.
--- Un número sin su fecha de corte no es comparable.
-
-CREATE TABLE IF NOT EXISTS par_metricas (
-    par_id            BIGINT PRIMARY KEY REFERENCES pares(id) ON DELETE CASCADE,
-
-    -- Hasta qué vela llegan estas métricas y sobre cuántas se calcularon.
-    hasta_fecha       DATE NOT NULL,
-    velas_usadas      SMALLINT NOT NULL,
-    ventana_dias      SMALLINT NOT NULL,
-
-    -- El día TÍPICO. Mediana, no promedio: en v2 el promedio ponía COLAPSOS en
-    -- la cabecera — ARCIELUSDT tenía promedio 219,94 % contra mediana 0,46 %,
-    -- un par plano encabezando el ranking por un único día de 6.118 %.
-    rango_tipico      NUMERIC(12,4),
-    rango_promedio    NUMERIC(12,4),   -- solo para calcular el ratio
-    rango_ratio       NUMERIC(12,4),   -- promedio/típico: alto = hubo evento o dato roto
-
-    -- 1 − Efficiency Ratio en logaritmos. Separa el par que VA Y VUELVE del
-    -- que se desploma. Medido: correlación 0,049 con el rango — es una
-    -- dimensión INDEPENDIENTE, no una variante de lo mismo.
-    oscilacion        NUMERIC(8,4),
-
-    -- Curva de repetibilidad, no un número: medido en v2, el umbral de 3 % lo
-    -- supera el 53 % del universo en más del 80 % de los días. Discrimina
-    -- desde 5 %.
-    dias_sobre_1pct   NUMERIC(6,2),
-    dias_sobre_2pct   NUMERIC(6,2),
-    dias_sobre_3pct   NUMERIC(6,2),
-    dias_sobre_5pct   NUMERIC(6,2),
-    dias_sobre_8pct   NUMERIC(6,2),
-
-    calculado_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-COMMENT ON COLUMN par_metricas.rango_promedio IS
-    'NO comparable entre pares: un solo día excepcional lo distorsiona. Existe '
-    'solo para calcular rango_ratio. Ordenar por él pone colapsos arriba.';
-
-COMMENT ON COLUMN par_metricas.hasta_fecha IS
-    'Hasta qué vela llegan. Sin esto, una métrica de hace 20 días se ve igual '
-    'que una de ayer — pasó en v2.';
-
-CREATE INDEX IF NOT EXISTS idx_metricas_rango ON par_metricas (rango_tipico DESC NULLS LAST);
-CREATE INDEX IF NOT EXISTS idx_metricas_osc   ON par_metricas (oscilacion DESC NULLS LAST);
-CREATE INDEX IF NOT EXISTS idx_metricas_hasta ON par_metricas (hasta_fecha);
+-- Crear la tabla ahora sería repetir lo de `pair_coin_alias` en v2: el lugar
+-- creado sin la forma de usarlo, y cero filas durante meses.
+--
+-- El VÍNCULO par↔coin sí está en `pares`, porque es parte de armar el catálogo
+-- y porque el vínculo manual es un dato del trader, no un cálculo.
 
 
-ALTER TABLE pares        OWNER TO axiom_user;
-ALTER TABLE vela_diaria  OWNER TO axiom_user;
-ALTER TABLE par_metricas OWNER TO axiom_user;
+ALTER TABLE pares       OWNER TO axiom_user;
+ALTER TABLE vela_diaria OWNER TO axiom_user;

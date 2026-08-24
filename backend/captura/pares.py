@@ -293,6 +293,65 @@ async def capturar_velas(pool: asyncpg.Pool, exchanges: list[str] | None = None,
     return resumen
 
 
+# ══ 3. VINCULAR CON LAS COINS ════════════════════════════════════════════════
+#
+# Es parte de armar el catálogo, no una derivación analítica: un par sin saber
+# a qué coin corresponde deja el catálogo incompleto.
+
+async def vincular_con_coins(pool: asyncpg.Pool) -> dict:
+    """
+    Vincula pares con coins cuando la coincidencia es INEQUÍVOCA.
+
+    Un símbolo se vincula solo si hay UNA coin activa con ese símbolo. Si hay
+    varias —y los símbolos se repiten mucho entre proyectos— no se elige: se
+    deja sin vincular para que el trader decida desde la UI.
+
+    NUNCA pisa un vínculo manual ni uno rechazado. La vinculación manual es la
+    verdad; esto es una sugerencia.
+
+    En v2 existía `pair_coin_alias` para los casos ambiguos y quedó con CERO
+    filas: se creó el lugar y no la forma de decidir.
+    """
+    async with pool.acquire() as conn:
+        r = await conn.execute("""
+            WITH unicos AS (
+                SELECT UPPER(symbol) AS sym, MIN(id) AS coin_id, COUNT(*) AS cuantas
+                FROM coins WHERE estado = 'activa'
+                GROUP BY UPPER(symbol)
+                HAVING COUNT(*) = 1          -- solo lo INEQUÍVOCO
+            )
+            UPDATE pares p
+            SET coin_id       = u.coin_id,
+                vinculo       = 'automatico',
+                vinculo_desde = (now() AT TIME ZONE 'utc')::date
+            FROM unicos u
+            WHERE UPPER(p.base) = u.sym
+              AND p.estado = 'activa'
+              AND p.coin_id IS NULL
+              AND (p.vinculo IS NULL)        -- no toca manual ni rechazado
+        """)
+        vinculados = int(r.split()[-1])
+
+        pendientes = await conn.fetchval("""
+            SELECT COUNT(*) FROM pares
+            WHERE coin_id IS NULL AND estado = 'activa'
+        """)
+        ambiguos = await conn.fetchval("""
+            SELECT COUNT(DISTINCT p.base)
+            FROM pares p
+            WHERE p.coin_id IS NULL AND p.estado = 'activa'
+              AND EXISTS (SELECT 1 FROM coins c
+                          WHERE UPPER(c.symbol) = UPPER(p.base)
+                            AND c.estado = 'activa'
+                          GROUP BY UPPER(c.symbol) HAVING COUNT(*) > 1)
+        """)
+
+    logger.info("[metricas] vinculados %d · sin vincular %d (%d símbolos ambiguos)",
+                vinculados, pendientes, ambiguos or 0)
+    return {"vinculados": vinculados, "sin_vincular": pendientes,
+            "simbolos_ambiguos": ambiguos or 0}
+
+
 # ══ Estado ═══════════════════════════════════════════════════════════════════
 
 async def estado(pool: asyncpg.Pool) -> dict:

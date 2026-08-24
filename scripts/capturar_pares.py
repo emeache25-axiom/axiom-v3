@@ -4,7 +4,6 @@ AXIOM v3 — Captura de pares.
 
     python scripts/capturar_pares.py catalogo    # qué pares existen
     python scripts/capturar_pares.py velas       # historia diaria
-    python scripts/capturar_pares.py metricas    # rango, oscilación, repetibilidad
     python scripts/capturar_pares.py vinculos    # par ↔ coin, solo lo inequívoco
     python scripts/capturar_pares.py todo
     python scripts/capturar_pares.py estado
@@ -17,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import asyncpg
-from backend.captura import pares, metricas
+from backend.captura import pares
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(message)s")
@@ -42,10 +41,8 @@ async def main(que: str, limite: int | None) -> None:
             print("catálogo :", await pares.catalogar(pool))
         if que in ("velas", "todo"):
             print("velas    :", await pares.capturar_velas(pool, limite_pares=limite))
-        if que in ("metricas", "todo"):
-            print("métricas :", await metricas.calcular(pool))
         if que in ("vinculos", "todo"):
-            print("vínculos :", await metricas.vincular_con_coins(pool))
+            print("vínculos :", await pares.vincular_con_coins(pool))
         if que in ("estado", "todo"):
             print("\nestado de pares:")
             for k, v in (await pares.estado(pool)).items():
@@ -56,7 +53,7 @@ async def main(que: str, limite: int | None) -> None:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("que", choices=["catalogo","velas","metricas","vinculos","todo","estado"])
+    ap.add_argument("que", choices=["catalogo","velas","vinculos","todo","estado"])
     ap.add_argument("--limite", type=int, default=None,
                     help="cuántos pares procesar (para probar sin esperar)")
     a = ap.parse_args()
