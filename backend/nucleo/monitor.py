@@ -134,8 +134,18 @@ async def monitor(pool, scheduler=None, bus=None, horas: int = 24) -> dict:
                 f"se colgó o el proceso murió sin cerrarla")
     if fallidas:
         ult = fallidas[0]
+        # `error` viene con la causa entre corchetes: "[sin_red] ...". Eso es lo
+        # accionable — "falló" a secas no dice si hay que esperar o arreglar
+        # algo.
         alertas.append(
-            f"«{ult['que']}» falló (intento {ult['intento']}): {ult['error']}")
+            f"«{ult['que']}» no completó (intento {ult['intento']}): "
+            f"{ult['error']}")
+        reint = [e for e in recientes
+                 if e["que"] == ult["que"] and e["estado"] == "ok"
+                 and e["inicio"] > ult["inicio"]]
+        if reint:
+            alertas.append(
+                f"  → se recuperó en el intento {reint[0]['intento']}")
 
     return {
         "ahora": str(ahora),

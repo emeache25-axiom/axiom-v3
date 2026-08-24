@@ -35,6 +35,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone, date
 
+from zoneinfo import ZoneInfo
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -44,6 +46,19 @@ from backend.nucleo import bus as _bus
 logger = logging.getLogger(__name__)
 
 _scheduler: AsyncIOScheduler | None = None
+
+# Los horarios de AXIOM son en UTC: el cierre del día es el cierre del día UTC,
+# no el de la zona donde esté el servidor.
+#
+# MEDIDO el 24/08/2026: `AsyncIOScheduler(timezone="UTC")` NO alcanza. El
+# CronTrigger toma la zona del SISTEMA al crearse, antes de que el scheduler le
+# imponga la suya — el scheduler decía UTC y el trigger decía
+# America/Argentina/Buenos_Aires. Resultado: el "cierre del día UTC" se
+# disparaba a las 03:05 UTC, tres horas tarde, y la ventana de reintentos
+# terminaba a las 17:00 en vez de las 20:00.
+#
+# Hay que pasarle la zona a CADA trigger.
+UTC = ZoneInfo("UTC")
 
 
 # ══ El cierre del día UTC ════════════════════════════════════════════════════
@@ -66,10 +81,18 @@ _scheduler: AsyncIOScheduler | None = None
 # variable en memoria que un reinicio borra.
 
 
-# Hasta qué hora del día siguiente tiene sentido guardar "el cierre de ayer".
-# Pasado eso los datos ya derivaron demasiado: guardarlos sería registrar el
-# mediodía de hoy con la fecha de ayer. Un HUECO DECLARADO es mejor.
-VENTANA_REINTENTO_H = 4
+# Hasta qué hora del día se sigue intentando capturar el cierre de AYER.
+#
+# 20:00 UTC = hasta 4 h antes de que termine el día. La ventana es amplia a
+# propósito: si el servidor se queda sin internet a la medianoche y vuelve a
+# las 15:00, ese día TODAVÍA se puede capturar. Perderlo por rigidez sería peor
+# que la deriva de los datos — y la deriva queda registrada en `capturado_at`,
+# así que después se sabe.
+#
+# El margen de 4 h existe para no pisarse con el cierre siguiente: capturar a
+# las 23:50 el cierre de ayer, cuando en diez minutos cierra hoy, sería
+# confuso.
+HASTA_HORA_UTC = 20
 
 
 async def _hay_foto(pool, fecha) -> bool:
@@ -127,14 +150,16 @@ async def reintentar_cierre(pool) -> dict:
     if await _hay_foto(pool, ayer):
         return {"dia": str(ayer), "estado": "ya_estaba"}
 
-    if ahora.hour >= VENTANA_REINTENTO_H:
-        # Fuera de ventana: se declara el hueco y no se intenta más hoy.
+    if ahora.hour >= HASTA_HORA_UTC:
+        # Fuera de ventana: se declara el hueco y no se intenta más hoy. Tan
+        # cerca del cierre siguiente, guardar esto como "ayer" confundiría más
+        # de lo que aportaría.
         logger.warning(
-            "[planificador] HUECO en %s — pasaron más de %d h del cierre y los "
-            "datos actuales ya no representan ese día. No se rellena.",
-            ayer, VENTANA_REINTENTO_H)
+            "[planificador] HUECO en %s — pasaron las %d:00 UTC y en pocas "
+            "horas cierra el día siguiente. No se rellena.",
+            ayer, HASTA_HORA_UTC)
         return {"dia": str(ayer), "estado": "hueco_declarado",
-                "motivo": f"fuera de la ventana de {VENTANA_REINTENTO_H} h"}
+                "motivo": f"pasó la hora límite ({HASTA_HORA_UTC}:00 UTC)"}
 
     intento = ahora.hour + 1
     logger.warning("[planificador] falta la foto de %s — reintento %d",
@@ -255,7 +280,7 @@ def iniciar(tareas: dict) -> AsyncIOScheduler:
     # cerrando sus propias velas.
     _scheduler.add_job(
         _envolver("cierre_del_dia", tareas["cerrar_el_dia"]),
-        trigger=CronTrigger(hour=0, minute=5),
+        trigger=CronTrigger(hour=0, minute=5, timezone=UTC),
         id="cierre_del_dia",
         name="Cierre del día UTC",
         max_instances=1,
@@ -273,7 +298,7 @@ def iniciar(tareas: dict) -> AsyncIOScheduler:
     if "reintentar_cierre" in tareas:
         _scheduler.add_job(
             _envolver("reintentar_cierre", tareas["reintentar_cierre"]),
-            trigger=CronTrigger(hour=f"1-{VENTANA_REINTENTO_H}", minute=5),
+            trigger=CronTrigger(hour=f"1-{HASTA_HORA_UTC}", minute=5, timezone=UTC),
             id="reintentar_cierre",
             name="Reintento del cierre del día",
             max_instances=1,
@@ -299,7 +324,7 @@ def iniciar(tareas: dict) -> AsyncIOScheduler:
             _envolver("inventariar_coins", tareas["inventariar_coins"]),
             # Una vez al día alcanza: las coins nuevas no aparecen cada hora, y
             # es una sola llamada.
-            trigger=CronTrigger(hour=1, minute=0),
+            trigger=CronTrigger(hour=1, minute=0, timezone=UTC),
             id="inventariar_coins",
             name="Inventario completo de la fuente",
             max_instances=1,

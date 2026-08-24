@@ -150,11 +150,18 @@ class Registro:
             if inspect.isawaitable(r):
                 r = await r
         except Exception as e:
+            # "Falló" no es accionable. Se clasifica para que el monitor pueda
+            # decir "el servidor no tiene internet" en vez de mostrar una traza
+            # — y para saber si reintentar sirve de algo.
+            from backend.nucleo.fallos import describir
+            d = describir(e)
             await self._cerrar(
-                id_, "error", None, str(e)[:2000],
+                id_, "error", _serializable({"fallo": d}),
+                f"[{d['causa']}] {d['mensaje']}"[:2000],
                 "".join(_tb.format_exception(
                     type(e), e, e.__traceback__))[:_MAX_TRAZA])
-            logger.error("[registro] %s (%s) FALLÓ: %s", que, disparador, e)
+            logger.error("[registro] %s (%s) FALLÓ — %s: %s",
+                         que, disparador, d["explicacion"], e)
             raise
 
         await self._cerrar(id_, "ok", _serializable(r))
