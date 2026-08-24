@@ -1,0 +1,185 @@
+# AXIOM v3 — Fuentes de datos
+# ═══════════════════════════════════════════════════════════════════════════
+# Agregar una fuente o un exchange es editar ESTE archivo. No hay código que
+# tocar.
+#
+# LAS CLAVES NO VAN ACÁ. Se declara qué variable de entorno las tiene, y el
+# valor vive en el .env. Así este archivo se versiona en git sin filtrar nada
+# y el panel puede configurar una fuente sin ver el secreto.
+#
+# Después de editar:  POST /api/config/recargar   (o reiniciar el servicio)
+
+version: 1
+
+fuentes:
+
+  # ═══════════════════════════════════════════════════════════════════════
+  coingecko:
+    tipo: rest
+    base_url: https://api.coingecko.com/api/v3
+    clave_en: COINGECKO_API_KEY        # nombre de la variable, no el valor
+    clave_header: x-cg-demo-api-key
+
+    limites:
+      # MEDIDO el 21/08/2026, no supuesto — CoinGecko NO informa cuota en
+      # headers: solo avisa cuando ya te pasaste, con un `retry-after` que sí
+      # es real (se lo vio devolver 43, no un fijo).
+      #
+      #   SIN clave: 4-6 llamadas/min. El límite lo aplica CLOUDFLARE en el
+      #   borde — hasta las respuestas cacheadas (cf-cache-status: HIT)
+      #   consumen cupo. Refresco completo de 12 páginas: 2m10s con 2-4 cortes
+      #   de 60 s.
+      #
+      #   CON clave (plan Demo): 100/min. Mismo refresco: 8,7 s, CERO cortes.
+      #   Trece veces más rápido con los mismos datos.
+      #
+      # Se declara 80 para dejar margen.
+      llamadas_por_minuto: 80
+      reintentos: 4
+      respeta_retry_after: true
+      espera_base_s: 5
+      espera_maxima_s: 120
+      timeout_s: 30
+
+    ofrece:    [precio, capitalizacion, ranking, categorias, inventario, dominancia]
+    no_ofrece: [libro, velas_intradia, funding, desbloqueos]
+
+    endpoints:
+      inventario:
+        path: /coins/list
+        devuelve: coleccion
+        descripcion: >
+          TODAS las coins que CoinGecko conoce — 18.610 al 23/08/2026 — en una
+          sola llamada. Es la referencia de EXISTENCIA: comparar contra esto
+          detecta altas y bajas de forma inequívoca, mucho mejor que deducirlas
+          de la ausencia en un listado paginado, que fue lo que en v2 hizo
+          confundir "salió del top 2000" con "está muerta".
+
+      mercados:
+        path: /coins/markets
+        devuelve: coleccion
+        params_fijos:
+          vs_currency: usd
+          # 250 es el MÁXIMO REAL, verificado: pedir 500 o 1000 devuelve 100
+          # —cae al default en silencio, sin error—. Va acá y no en
+          # params_admite para que nadie lo suba creyendo ir más rápido y
+          # obtenga MENOS datos sin que nada avise.
+          per_page: 250
+        params_admite: [page, ids, order, price_change_percentage, sparkline, category]
+
+      ficha:
+        path: /coins/{id}
+        devuelve: objeto
+        params_fijos:
+          localization: "false"
+          tickers: "false"
+          market_data: "false"
+          community_data: "false"
+          developer_data: "false"
+        descripcion: >
+          Devuelve 404 si la coin ya no existe — y ese 404 es la señal
+          inequívoca de baja.
+
+      global:
+        path: /global
+        devuelve: objeto
+        descripcion: Capitalización total, volumen y dominancia. De acá sale btc_dominance.
+
+    # ── Mapeo al vocabulario de AXIOM ────────────────────────────────────
+    # La respuesta CRUDA se guarda entera; esto solo dice qué campo de la
+    # fuente corresponde a qué propiedad.
+    #
+    # Agregar un campo mañana es agregar una línea acá — y va a estar
+    # disponible incluso para lo YA capturado, porque el crudo quedó. En v2 un
+    # campo no mapeado era irrecuperable hacia atrás: había que volver a pedir
+    # todo, y para datos históricos eso es imposible.
+    #
+    # Las rutas con punto leen campos anidados: data.market_cap_percentage.btc
+    mapeos:
+      mercados:
+        id:                                       id
+        symbol:                                   symbol
+        name:                                     nombre
+        current_price:                            precio
+        market_cap:                               capitalizacion
+        market_cap_rank:                          puesto
+        total_volume:                             volumen
+        price_change_percentage_24h:              variacion_24h
+        price_change_percentage_7d_in_currency:   variacion_7d
+        ath:                                      maximo_historico
+        ath_change_percentage:                    distancia_al_maximo
+        ath_date:                                 maximo_historico_fecha
+        circulating_supply:                       supply_circulante
+        total_supply:                             supply_total
+        max_supply:                               supply_maximo
+        last_updated:                             fuente_updated_at
+
+      global:
+        data.total_market_cap.usd:                capitalizacion_total
+        data.total_volume.usd:                    volumen_total
+        data.market_cap_percentage.btc:           dominancia_btc
+        data.market_cap_percentage.eth:           dominancia_eth
+        data.active_cryptocurrencies:             coins_activas_fuente
+        data.updated_at:                          fuente_updated_at
+
+      ficha:
+        id:                                       id
+        symbol:                                   symbol
+        name:                                     nombre
+        categories:                               categorias
+        description.en:                           descripcion
+        genesis_date:                             fecha_genesis
+        links.homepage:                           sitios
+        hashing_algorithm:                        algoritmo
+        last_updated:                             fuente_updated_at
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # EXCHANGES — vía ccxt
+  #
+  # Agregar uno es agregar un bloque acá. Sin decodificador, sin código, sin
+  # verificar compatibilidad: ccxt cubre 103 exchanges REST y 76 con WebSocket.
+  #
+  # VERIFICADO el 22/08/2026 contra MEXC y CoinEx:
+  #   · los conteos coinciden con v2 — CoinEx idéntico (723 USDT, 169 BTC, 72
+  #     USDC), MEXC con 2-3 % de diferencia por un criterio de "activo"
+  #     ligeramente distinto y probablemente más actual
+  #   · la precisión se conserva: ROSE/BTC a 8,1622e-08 sin pérdida
+  #   · trae velas horarias, que habilita las estadísticas por franja
+  #   · 500 velas diarias de backfill
+  #
+  # LO QUE ccxt NO RESUELVE, declarado: no inventa lo que el exchange no da.
+  # El ticker de CoinEx viene SIN bid/ask —0 de 1.208—, así que su spread
+  # necesita el libro par por par. En MEXC sí viene: 2.101 de 2.101.
+
+  mexc:
+    tipo: ccxt
+    exchange_id: mexc
+    operable: true
+    opciones:
+      # defaultType=spot es necesario: sin esto ccxt carga spot Y swap en
+      # paralelo, y el endpoint de contratos dio timeout. La abstracción hace
+      # llamadas que uno no pidió.
+      defaultType: spot
+      timeout: 60000
+    ofrece: [precio, velas, libro, tickers, spread]
+    spread_desde: ticker        # fetch_tickers trae bid/ask: 1 llamada, 5,4 s
+
+  coinex:
+    tipo: ccxt
+    exchange_id: coinex
+    operable: true
+    opciones:
+      defaultType: spot
+      timeout: 60000
+    ofrece: [precio, velas, libro, tickers]
+    no_ofrece: [spread_en_ticker]
+    spread_desde: libro         # el ticker no trae bid/ask: hay que ir al libro
+
+  # Para agregar KuCoin, descomentar. Nada más.
+  # kucoin:
+  #   tipo: ccxt
+  #   exchange_id: kucoin
+  #   operable: false           # se observa pero no se opera
+  #   opciones:
+  #     defaultType: spot
+  #     timeout: 60000

@@ -27,6 +27,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -169,3 +170,50 @@ async def eventos(request: Request) -> dict:
     """Qué eventos existen, quién escucha cada uno y cuántos se publicaron."""
     from backend.nucleo.bus import bus
     return bus.estado()
+
+
+# ══ 3. Configuración ═════════════════════════════════════════════════════════
+
+configuracion = APIRouter(prefix="/api/config", tags=["config"])
+
+
+@configuracion.get("")
+async def ver_config() -> dict:
+    """
+    La configuración vigente. NUNCA incluye claves: el YAML declara qué
+    variable de entorno tiene cada una, y el valor vive en el .env.
+    """
+    from backend.nucleo import config
+    return config.resumen()
+
+
+@configuracion.get("/archivo/{nombre}")
+async def ver_archivo(nombre: str) -> dict:
+    """
+    El YAML crudo, para editarlo. Los comentarios son parte del valor: toda la
+    disciplina de AXIOM es declarar el porqué, y un archivo que los admite es
+    coherente con eso.
+    """
+    from backend.nucleo.config import DIR_CONFIG, ARCHIVOS
+    if nombre not in ARCHIVOS:
+        raise HTTPException(404, f"no existe '{nombre}'. Hay: {list(ARCHIVOS)}")
+    ruta = DIR_CONFIG / f"{nombre}.yaml"
+    return {"nombre": nombre, "contenido": ruta.read_text(encoding="utf-8")}
+
+
+@configuracion.post("/recargar")
+async def recargar_config(request: Request) -> dict:
+    """
+    Relee los archivos sin reiniciar.
+
+    TOLERANTE a propósito: si la configuración nueva es inválida, se conserva
+    la anterior y se devuelve qué está mal. Perder el servicio por un error de
+    tipeo en el panel sería peor que el problema.
+    """
+    from backend.nucleo import config
+    r = config.recargar()
+    if not r["aplicada"]:
+        # 422 y no 500: el pedido se entendió, la configuración es la que no
+        # sirve. Y el sistema sigue andando con la anterior.
+        return JSONResponse(status_code=422, content=r)
+    return r

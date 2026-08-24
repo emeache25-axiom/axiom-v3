@@ -31,8 +31,10 @@ migrations/    esquema de la base
 Punto 1 del plan: **fuentes y captura**. Funcionando.
 
 ```
+config/fuentes.yaml              las fuentes: agregar un exchange es una fila
+config/captura.yaml              qué se guarda y cuándo
+config/vigencias.yaml            cuánto vale cada lectura antes de repedirla
 backend/fuentes/cliente.py       UNA implementación de "pedir a una API"
-backend/fuentes/coingecko.py     la declaración, con sus límites MEDIDOS
 backend/nucleo/bus.py            eventos: quien publica no sabe quién escucha
 backend/nucleo/planificador.py   lo único que sabe CUÁNDO
 backend/captura/universo.py      inventariar · refrescar · fotografiar
@@ -77,6 +79,26 @@ endpoint nuevo.
 | cada 6 h | refresca precio, capitalización y ranking |
 | 01:00 UTC | inventario completo — detecta altas y bajas |
 | al cerrar el día UTC | **por evento**: la foto diaria del día que cerró |
+
+### Configuración
+
+Las fuentes, los exchanges y los ritmos viven en `config/*.yaml`. **Agregar
+KuCoin es descomentar un bloque** — no hay código que tocar.
+
+Las claves NO están ahí: el YAML declara qué variable de entorno tiene cada
+una, y el valor vive en el `.env`. Así el archivo se versiona en git sin
+filtrar nada.
+
+```bash
+curl -X POST localhost:8003/api/config/recargar   # sin reiniciar
+```
+
+La recarga es tolerante: si la configuración nueva es inválida, sigue la
+anterior y dice qué está mal.
+
+> Esto existe porque la API key vivía en `coingecko.py` y **tres despliegues
+> seguidos la pisaron**, devolviendo el sistema a 4 llamadas por minuto sin que
+> nada avisara. La configuración que vive en el código se pierde.
 
 ### Medido, no supuesto
 

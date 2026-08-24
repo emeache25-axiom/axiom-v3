@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import asyncpg
 
 from backend.fuentes.cliente import ClienteFuentes
-from backend.fuentes.coingecko import COINGECKO
+from backend.nucleo import config as _config
 from backend.captura import universo
 
 logging.basicConfig(level=logging.INFO,
@@ -48,7 +48,8 @@ def _dsn() -> str:
 async def main(que: str, cuantas: int) -> None:
     pool = await asyncpg.create_pool(_dsn())
     cliente = ClienteFuentes()
-    cliente.registrar(COINGECKO)
+    for f in _config.actual().fuentes.values():
+        cliente.registrar(f)
     try:
         async with cliente:
             if que in ("inventario", "todo"):

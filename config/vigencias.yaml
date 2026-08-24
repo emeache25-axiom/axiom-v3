@@ -1,0 +1,58 @@
+# AXIOM v3 — Cuánto vale cada dato antes de volver a pedirlo
+# ═══════════════════════════════════════════════════════════════════════════
+# Sin esto, diez pantallas mirando la lista de pares producen diez llamadas
+# idénticas al exchange en el mismo segundo.
+#
+# Es CACHÉ, no almacenamiento: sirve para no repetir una llamada que acaba de
+# hacerse. Nada de esto es historia.
+#
+# Toda respuesta viaja con su vigencia declarada: `calculado_at`,
+# `fuente_hasta` y hasta cuándo vale. No es opcional cuando el consumidor es un
+# modelo que razona.
+
+version: 1
+
+vigencias:
+
+  # ── Lecturas en vivo: vencen por TIEMPO ─────────────────────────────────
+  # No hay evento discreto que las invalide: el precio cambia continuamente.
+  tickers:
+    vale_segundos: 30
+    nota: >
+      Un fetch_tickers masivo tarda 5,4 s en MEXC y 0,7 s en CoinEx. Treinta
+      segundos evita repetirlo y sigue siendo suficientemente fresco para
+      mirar una lista.
+
+  precio_par:
+    vale_segundos: 10
+
+  libro:
+    vale_segundos: 5
+    nota: El libro cambia constantemente; más de unos segundos ya es viejo.
+
+  velas_intradia:
+    vale_segundos: 60
+    nota: Una vela horaria no cambia hasta que cierra la hora.
+
+  # ── Derivados: vencen por EVENTO ────────────────────────────────────────
+  # "Vale hasta que cierre la vela diaria" es lo que realmente pasa; "vale 6
+  # horas" sería arbitrario.
+  metricas_de_par:
+    vale_hasta_evento: cierre_vela_diaria
+    nota: >
+      Rango típico, oscilación, repetibilidad. Se calculan sobre velas diarias:
+      no cambian hasta que hay un día nuevo.
+
+  estadisticas_horarias:
+    vale_hasta_evento: cierre_vela_diaria
+    nota: >
+      Franja del máximo, secuencia máximo/mínimo. Se piden al exchange y se
+      cachean: se consultan de a UN par, así que no tiene sentido calcularlas
+      para todo el universo.
+
+  catalogo_de_coins:
+    vale_hasta_evento: refresco_de_coins
+
+  inventario:
+    vale_segundos: 86400
+    nota: Qué existe cambia poco. Un día alcanza.

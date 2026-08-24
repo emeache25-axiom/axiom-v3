@@ -29,7 +29,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from backend.app import axiom
-from backend.api.rutas import capacidades, sistema
+from backend.api.rutas import capacidades, sistema, configuracion
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,7 @@ app = FastAPI(
 
 app.include_router(capacidades)
 app.include_router(sistema)
+app.include_router(configuracion)
 
 
 @app.get("/api/salud", include_in_schema=False)

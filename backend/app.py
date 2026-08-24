@@ -21,7 +21,7 @@ from pathlib import Path
 import asyncpg
 
 from backend.fuentes.cliente import ClienteFuentes
-from backend.fuentes.coingecko import COINGECKO
+from backend.nucleo import config as _config
 from backend.nucleo import bus as _bus
 from backend.nucleo import planificador
 from backend.nucleo.registro import registro
@@ -55,7 +55,21 @@ class Axiom:
     async def arrancar(self, con_planificador: bool = True) -> None:
         self.pool = await asyncpg.create_pool(dsn(), min_size=2, max_size=10)
         registro.conectar(self.pool)
-        self.fuentes.registrar(COINGECKO)
+
+        # Las fuentes salen del YAML, no del código. Si la configuración es
+        # inválida, ConfigInvalida impide arrancar — arrancar con una
+        # configuración a medias haría algo distinto de lo declarado sin que
+        # nadie se entere.
+        cfg = _config.actual()
+        for f in cfg.fuentes.values():
+            self.fuentes.registrar(f)
+        if cfg.claves_faltantes:
+            # No impide arrancar, pero tiene que verse: una fuente sin clave
+            # funciona con límites mucho más bajos. En v2 un despliegue pisó la
+            # clave TRES veces y el sistema quedó a 4 llamadas por minuto sin
+            # que nada avisara.
+            logger.warning("[axiom] fuentes SIN CLAVE: %s",
+                           ", ".join(cfg.claves_faltantes))
         await self.fuentes.abrir()
 
         self._suscribir()
@@ -154,6 +168,7 @@ class Axiom:
             "planificador": planificador.estado(),
             "bus": _bus.bus.estado(),
             "salud": await registro.salud(horas=24),
+            "config": _config.resumen(),
         }
 
 

@@ -1,0 +1,75 @@
+# AXIOM v3 — Qué se captura y cuándo
+# ═══════════════════════════════════════════════════════════════════════════
+# EL PRINCIPIO: se guarda lo que NO se puede volver a pedir.
+#
+# Un precio de ahora se puede pedir siempre; el ranking de hace un mes no. Por
+# eso la captura es mínima —una tarea diaria— y todo lo demás se lee en vivo
+# cuando hace falta, sin almacenarlo.
+#
+# Eso mantiene la base chica y evita el problema de v2, donde `ob_snapshots`
+# llegó a 3,9 GB —el 98 % de toda la base— capturando el libro de DOS pares 40
+# veces por minuto sin propósito declarado.
+
+version: 1
+
+universo:
+  coins:
+    # Cuántas coins se siguen. Es una DECISIÓN, no una restricción: en v2 se
+    # pedían 8 páginas "porque alguien escribió 8", y las ~580 que quedaban
+    # afuera envejecían en silencio.
+    seguir: 3000
+    fuente: coingecko
+
+  pares:
+    exchanges: [mexc, coinex]
+    # Un par nuevo se detecta al día siguiente. Para la historia da igual, y
+    # para operar se consulta al exchange en vivo.
+    solo_activos: true
+
+# ── Lo que se GUARDA ────────────────────────────────────────────────────────
+capturas:
+
+  cierre_del_dia:
+    cuando: "00:05 UTC"
+    que: >
+      La foto diaria del universo de coins. Es lo IRRECUPERABLE: CoinGecko no
+      devuelve el ranking de hace un mes ni la capitalización de un sector en
+      una fecha pasada. Si no se captura hoy, ese día no existe nunca más.
+    # Se retrata el día que CERRÓ, no el que empieza: fotografiar el día nuevo
+    # daría datos de cinco minutos de antigüedad.
+    reintento:
+      # Hasta las 20:00 UTC = 4 h antes de que termine el día. Amplia a
+      # propósito: si el servidor se queda sin internet a medianoche y vuelve a
+      # las 15:00, ese día TODAVÍA se salva. La deriva queda registrada en
+      # `capturado_at`.
+      # El margen final evita pisarse con el cierre siguiente.
+      hasta_hora_utc: 20
+      cada: "1 hora"
+
+  inventario:
+    cuando: "01:00 UTC"
+    que: >
+      Qué existe según la fuente. Detecta altas y bajas de forma inequívoca.
+      Una coin nueva no aparece cada hora, así que diario alcanza sobrado.
+
+  refresco_de_coins:
+    cada: "6 horas"
+    que: >
+      Precio, capitalización y ranking de las coins seguidas. Alimenta la foto
+      diaria.
+    # NOTA: este ritmo está bajo revisión. Si la foto diaria hace su propia
+    # lectura fresca antes de guardar, este refresco podría ser innecesario o
+    # pasar a ser diario — las coins en vivo se piden al momento y no se
+    # almacenan.
+
+# ── Lo que NO se guarda, y por qué ──────────────────────────────────────────
+no_se_guarda:
+  precios_en_vivo: >
+    Se piden a la fuente cuando hacen falta. Guardarlos sería duplicar el
+    trabajo del exchange.
+  velas_horarias: >
+    El exchange las devuelve on-demand y se consultan de a un par: nadie va a
+    rankear 3.000 pares por en qué franja hacen su máximo.
+  libro_de_ordenes: >
+    Solo bajo demanda y con propósito declarado. En v2 se capturó
+    permanentemente "por si acaso" y generó 3,9 GB para dos pares.

@@ -32,7 +32,7 @@ from typing import Any
 import asyncpg
 
 from backend.fuentes.cliente import ClienteFuentes, FuenteError
-from backend.fuentes.coingecko import COINGECKO, MAPEO_MERCADOS
+from backend.nucleo import config as _config
 from backend.nucleo import bus as _bus
 
 logger = logging.getLogger(__name__)
@@ -230,9 +230,12 @@ async def refrescar(pool: asyncpg.Pool, cliente: ClienteFuentes,
                     conn, "coingecko", "mercados", {"page": pagina}, r)
 
             motivo = f"top_{cuantas}"
+            # El mapeo sale del YAML: agregar un campo es una línea allá, no
+            # un cambio de código acá.
+            mapeo = _config.actual().mapeos.get("coingecko", {}).get("mercados", {})
             filas = []
             for item in r.datos:
-                m = _mapear(item, MAPEO_MERCADOS)
+                m = _mapear(item, mapeo)
                 if not m.get("id"):
                     continue
                 filas.append((
