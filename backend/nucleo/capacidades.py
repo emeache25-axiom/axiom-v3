@@ -69,6 +69,26 @@ class Objeto(str, Enum):
     SISTEMA = "sistema"        # el propio AXIOM
 
 
+class Alcance(str, Enum):
+    """
+    Para cuántos objetos se calcula de una vez.
+
+    No es un detalle de implementación: es el criterio de la arquitectura sobre
+    qué se precalcula. Una capacidad que sirve para COMPARAR objetos entre sí se
+    calcula para TODOS cuando ocurre el evento que la invalida; una que se
+    consulta de a uno se calcula al pedido.
+
+    Nadie va a rankear 3.000 pares por en qué franja hacen su máximo. Sí por
+    cuánto se mueven.
+
+    Se declara —en vez de que el motor lo infiera de la forma del resultado—
+    porque el copiloto va a poder crear capacidades, y una convención implícita
+    sería invisible para él.
+    """
+    INDIVIDUAL = "individual"   # un objeto por vez
+    MASIVA = "masiva"           # todo el universo del objeto, de una
+
+
 class Direccion(str, Enum):
     """
     Cómo se lee un valor más alto. Sin esto, nadie —persona o modelo— sabe si
@@ -168,6 +188,7 @@ class Capacidad:
     vigencia: Vigencia
     propiedad: Propiedad = field(default_factory=Propiedad)
     parametros: dict[str, Any] = field(default_factory=dict)
+    alcance: Alcance = Alcance.INDIVIDUAL
 
     @property
     def es_compuesta(self) -> bool:
@@ -355,6 +376,7 @@ class RegistroCapacidades:
                 "nombre": c.nombre,
                 "objeto": c.objeto.value,
                 "tipo": "compuesta" if c.es_compuesta else "simple",
+                "alcance": c.alcance.value,
                 "descripcion": c.descripcion,
                 "operacion": getattr(c, "operacion", None),
                 "componentes": getattr(c, "componentes", None),

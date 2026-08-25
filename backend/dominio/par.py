@@ -24,7 +24,8 @@ import logging
 from datetime import datetime, timezone
 
 from backend.nucleo.capacidades import (
-    registro, Simple, Objeto, Direccion, Epistemico, Propiedad, Vigencia)
+    registro, Simple, Objeto, Direccion, Epistemico, Propiedad, Vigencia,
+    Alcance)
 
 logger = logging.getLogger(__name__)
 
@@ -168,11 +169,24 @@ def _empaquetar(filas, ventana: int) -> dict:
     ven idénticas. Es el mismo problema que en v2 con la ventana pedida contra
     la efectiva —se pidieron 90 días y se usaron 61—.
     """
+    def _numero(v):
+        """
+        PostgreSQL devuelve NUMERIC como Decimal y DOUBLE como float, según la
+        función que se use: PERCENTILE_CONT da float, GREATEST/LEAST sobre
+        numeric da Decimal. Los dos son números y tienen que salir igual —
+        Decimal no es serializable a JSON y rompía la persistencia.
+        """
+        if v is None or isinstance(v, dict) or isinstance(v, str):
+            return v
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return v
+
     return {
         "por_par": {
             str(f["par_id"]): {
-                "valor": (float(f["valor"])
-                          if isinstance(f["valor"], (int, float)) else f["valor"]),
+                "valor": _numero(f["valor"]),
                 "velas": f["velas"],
                 "hasta": str(f["hasta"]),
                 "ventana_completa": f["velas"] >= ventana,
@@ -193,6 +207,7 @@ def declarar() -> None:
         nombre="rango_tipico",
         objeto=Objeto.PAR,
         funcion=_rango_tipico,
+        alcance=Alcance.MASIVA,
         descripcion="Cuánto se mueve el par en un día típico",
         parametros={"ventana": VENTANA, "par_id": {"default": None}},
         propiedad=Propiedad(
@@ -218,6 +233,7 @@ def declarar() -> None:
         nombre="oscilacion",
         objeto=Objeto.PAR,
         funcion=_oscilacion,
+        alcance=Alcance.MASIVA,
         descripcion="Si el par va y vuelve, o se desplaza en una dirección",
         parametros={"ventana": VENTANA, "par_id": {"default": None}},
         propiedad=Propiedad(
@@ -241,6 +257,7 @@ def declarar() -> None:
         nombre="repetibilidad",
         objeto=Objeto.PAR,
         funcion=_repetibilidad,
+        alcance=Alcance.MASIVA,
         descripcion="Con qué frecuencia el par supera cada umbral de movimiento",
         parametros={"ventana": VENTANA, "par_id": {"default": None}},
         propiedad=Propiedad(

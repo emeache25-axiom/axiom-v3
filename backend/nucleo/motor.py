@@ -32,13 +32,15 @@ como actuales.
 """
 from __future__ import annotations
 
+import json
 import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from backend.nucleo.capacidades import (
-    Capacidad, Simple, Compuesta, Resultado, RegistroCapacidades, registro)
+    Capacidad, Simple, Compuesta, Resultado, RegistroCapacidades, registro,
+    Alcance)
 from backend.nucleo.fallos import clasificar
 
 logger = logging.getLogger(__name__)
@@ -262,6 +264,103 @@ class Motor:
         if cap.vigencia.segundos is not None:
             return ahora + timedelta(seconds=cap.vigencia.segundos)
         return None      # vence por evento, no por tiempo
+
+    # ── Persistencia ────────────────────────────────────────────────────────
+    async def persistir(self, r: Resultado, args: dict | None = None) -> int:
+        """
+        Guarda el resultado en `valores`.
+
+        Una capacidad MASIVA devuelve todos los objetos de una vez y se
+        desagrega en una fila por objeto: es lo que permite que el screener
+        filtre y ordene. Una INDIVIDUAL es una sola fila.
+
+        La desagregación se hace porque la capacidad declaró que es masiva, no
+        porque el motor adivine la forma del resultado.
+        """
+        pool = self.contexto.get("pool")
+        if pool is None:
+            return 0
+        cap = self.registro.obtener(r.capacidad)
+        args = args or {}
+
+        if cap.alcance is Alcance.MASIVA:
+            por_objeto = (r.valor or {}).get("por_par") or (r.valor or {}).get("por_objeto") or {}
+            filas = []
+            for objeto_id, d in por_objeto.items():
+                v = d.get("valor") if isinstance(d, dict) else d
+                # Los parámetros del cálculo son parte de la clave: el mismo
+                # rango con ventana 30 y con 90 son valores DISTINTOS, no uno
+                # que pisa al otro.
+                clave_args = {k: v2 for k, v2 in args.items() if k != "par_id"}
+                filas.append((
+                    r.capacidad, cap.objeto.value, str(objeto_id),
+                    json.dumps(clave_args),
+                    float(v) if isinstance(v, (int, float)) else None,
+                    json.dumps(v) if not isinstance(v, (int, float)) else None,
+                    r.calculado_at, r.fuente_hasta, r.vigente_hasta,
+                    r.vigente_evento or None,
+                    # La ventana incompleta viaja como advertencia POR OBJETO:
+                    # una métrica sobre 9 velas no es comparable con una sobre
+                    # 30, y sin esto se ven idénticas.
+                    json.dumps(
+                        [] if (not isinstance(d, dict) or d.get("ventana_completa", True))
+                        else [f"ventana incompleta: {d.get('velas')} velas de "
+                              f"{r.valor.get('ventana_pedida')}"]),
+                ))
+        else:
+            filas = [(
+                r.capacidad, cap.objeto.value,
+                str(args.get("objeto_id") or args.get("par_id") or "-"),
+                json.dumps(args),
+                float(r.valor) if isinstance(r.valor, (int, float)) else None,
+                json.dumps(r.valor) if not isinstance(r.valor, (int, float)) else None,
+                r.calculado_at, r.fuente_hasta, r.vigente_hasta,
+                r.vigente_evento or None, json.dumps(r.advertencias),
+            )]
+
+        if not filas:
+            return 0
+        async with pool.acquire() as conn:
+            await conn.executemany("""
+                INSERT INTO valores (capacidad, objeto, objeto_id, args,
+                    valor_num, valor_json, calculado_at, fuente_hasta,
+                    vigente_hasta, vigente_evento, advertencias)
+                VALUES ($1,$2,$3,$4::jsonb,$5,$6::jsonb,$7,$8,$9,$10,$11::jsonb)
+                ON CONFLICT (capacidad, objeto, objeto_id, args) DO UPDATE SET
+                    valor_num      = EXCLUDED.valor_num,
+                    valor_json     = EXCLUDED.valor_json,
+                    calculado_at   = EXCLUDED.calculado_at,
+                    fuente_hasta   = EXCLUDED.fuente_hasta,
+                    vigente_hasta  = EXCLUDED.vigente_hasta,
+                    vigente_evento = EXCLUDED.vigente_evento,
+                    advertencias   = EXCLUDED.advertencias
+            """, filas)
+        logger.info("[motor] %s → %d valores persistidos", r.capacidad, len(filas))
+        return len(filas)
+
+    async def recalcular_masivas(self, evento: str) -> dict:
+        """
+        Recalcula y persiste todas las capacidades masivas que dependen de un
+        evento.
+
+        Es lo que el bus dispara al cerrar el día: las capacidades no se
+        suscriben una por una, se declaran con su vigencia y el motor las
+        agrupa.
+        """
+        hechas, fallidas = {}, {}
+        for cap in self.registro._caps.values():
+            if cap.alcance is not Alcance.MASIVA:
+                continue
+            if cap.vigencia.evento != evento:
+                continue
+            try:
+                r = await self.resolver(cap.nombre)
+                hechas[cap.nombre] = await self.persistir(r, {})
+            except Exception as e:
+                logger.error("[motor] %s falló al recalcular: %s", cap.nombre, e)
+                fallidas[cap.nombre] = f"{clasificar(e).value}: {e}"[:200]
+        return {"evento": evento, "recalculadas": hechas,
+                "fallidas": fallidas or None}
 
     # ── Explicación ─────────────────────────────────────────────────────────
     async def explicar(self, nombre: str) -> dict:
