@@ -30,6 +30,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from backend.nucleo.motor import MotorError
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,14 +55,9 @@ async def listar_capacidades(request: Request) -> dict:
     las capacidades sin que nadie le pase una lista. Agregar una capacidad la
     hace visible sin tocar el cliente.
     """
-    reg = getattr(request.app.state, "registro_capacidades", None)
-    if reg is None:
-        # El registro de capacidades es del punto 2 del plan. Hasta que exista,
-        # se dice claramente en vez de devolver una lista vacía que parecería
-        # "no hay ninguna".
-        return {"disponible": False,
-                "nota": "el registro de capacidades todavía no está construido"}
-    return {"disponible": True, "capacidades": reg.listar()}
+    from backend.nucleo.capacidades import registro as reg
+    return {"total": len(reg), "operaciones": reg.operaciones,
+            "capacidades": reg.listar()}
 
 
 @capacidades.post("/capacidad/{nombre}")
@@ -71,15 +68,47 @@ async def ejecutar_capacidad(nombre: str, request: Request,
 
     Una sola ruta para todas: agregar una capacidad no requiere endpoint nuevo.
     """
-    reg = getattr(request.app.state, "registro_capacidades", None)
-    if reg is None:
-        raise HTTPException(
-            501, "el registro de capacidades todavía no está construido")
+    motor = request.app.state.axiom.motor
     args = pedido.model_dump() if pedido else {}
+    objeto_id = args.pop("objeto_id", None)
+
     try:
-        return await reg.ejecutar(nombre, args)
-    except KeyError:
-        raise HTTPException(404, f"capacidad '{nombre}' no declarada")
+        # Primero el caché: una capacidad masiva sobre 3.000 pares tarda
+        # segundos, y recalcularla en cada consulta HTTP sería absurdo cuando
+        # el valor no cambió. La vigencia decide, no el que llama.
+        hay, valor = await motor.vigente(nombre, objeto_id, args)
+        if hay:
+            cap = motor.registro.obtener(nombre)
+            return {
+                "capacidad": nombre, "valor": valor, "desde_cache": True,
+                "epistemico": {"mide": cap.epistemico.mide,
+                               "infiere": cap.epistemico.infiere or None,
+                               "no_sabe": cap.epistemico.no_sabe},
+            }
+        r = await motor.resolver(nombre, args)
+        return r.a_dict()
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    except MotorError as e:
+        # 400 y no 500: un parámetro mal escrito o fuera de rango es culpa de
+        # quien llama, no del servidor. Y el mensaje ya dice qué admite — es
+        # justamente lo que en v2 faltaba, donde un parámetro no reconocido se
+        # ignoraba en silencio.
+        raise HTTPException(400, str(e))
+
+
+@capacidades.get("/capacidad/{nombre}/explicar")
+async def explicar_capacidad(nombre: str, request: Request) -> dict:
+    """
+    De qué se compone una respuesta, sin calcularla.
+
+    Si una capacidad es una composición declarada, se puede mostrar de dónde
+    salió. En v2 eso se escribía a mano en cada capacidad.
+    """
+    try:
+        return await request.app.state.axiom.motor.explicar(nombre)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
 
 
 # ══ 2. Sistema — introspección ═══════════════════════════════════════════════

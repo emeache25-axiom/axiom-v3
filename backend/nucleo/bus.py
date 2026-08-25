@@ -37,6 +37,7 @@ Ver AXIOM_v3_arquitectura.md §7.3
 """
 from __future__ import annotations
 
+import json
 import asyncio
 import inspect
 import logging
@@ -108,6 +109,12 @@ class Bus:
         self._suscriptores: dict[str, list[tuple[str, Manejador]]] = defaultdict(list)
         self._publicados: dict[str, int] = defaultdict(int)
         self._fallos: dict[str, int] = defaultdict(int)
+        # Para dejar rastro persistente. El bus vive en memoria y un reinicio
+        # lo borra; sin esto, la vigencia POR EVENTO no se puede verificar.
+        self.pool = None
+
+    def conectar(self, pool) -> None:
+        self.pool = pool
 
     # ── Suscripción ─────────────────────────────────────────────────────────
     def suscribir(self, tipo: str, manejador: Manejador,
@@ -147,7 +154,12 @@ class Bus:
         if not manejadores:
             # No es un error: un evento sin consumidores es perfectamente
             # válido. `cierre_vela_horaria` no tiene ninguno todavía.
+            #
+            # Pero SÍ se anota: el hecho ocurrió, y de eso depende la vigencia
+            # de las capacidades. Un valor calculado antes de este momento está
+            # vencido tenga o no suscriptores el evento.
             logger.debug("[bus] %s publicado, sin suscriptores", tipo)
+            await self._anotar(evento, 0, 0)
             return {"evento": tipo, "suscriptores": 0, "ok": 0, "fallos": 0}
 
         async def _correr(etiqueta: str, m: Manejador):
@@ -173,6 +185,7 @@ class Bus:
         fallos = {n: repr(e) for n, e in resultados if e is not None}
         logger.info("[bus] %s → %d suscriptor(es), %d fallo(s)",
                     tipo, len(manejadores), len(fallos))
+        await self._anotar(evento, len(manejadores), len(fallos))
         return {
             "evento": tipo,
             "suscriptores": len(manejadores),
@@ -193,6 +206,38 @@ class Bus:
         """
         return asyncio.get_running_loop().create_task(
             self.publicar(tipo, datos, origen))
+
+    async def _anotar(self, evento: Evento, suscriptores: int, fallos: int) -> None:
+        """
+        Deja rastro persistente del hecho.
+
+        Si no se puede anotar, se loguea y se sigue: un problema registrando un
+        evento no puede impedir que el evento surta efecto.
+        """
+        if self.pool is None:
+            return
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO eventos (tipo, ocurrido_at, origen, datos,
+                                         suscriptores, fallos)
+                    VALUES ($1,$2,$3,$4::jsonb,$5,$6)
+                """, evento.tipo, evento.ocurrido_at, evento.origen or None,
+                     json.dumps(evento.datos, default=str),
+                     suscriptores, fallos)
+        except Exception as e:
+            logger.warning("[bus] no se pudo anotar %s: %s", evento.tipo, e)
+
+    async def ultimo(self, tipo: str) -> datetime | None:
+        """
+        Cuándo ocurrió por última vez. Es lo que resuelve la vigencia por
+        evento: un valor calculado antes de esto está vencido.
+        """
+        if self.pool is None:
+            return None
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval(
+                "SELECT MAX(ocurrido_at) FROM eventos WHERE tipo = $1", tipo)
 
     # ── Estado ──────────────────────────────────────────────────────────────
     def estado(self) -> dict:

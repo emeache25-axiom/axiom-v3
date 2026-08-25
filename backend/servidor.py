@@ -50,10 +50,6 @@ async def _ciclo(app: FastAPI):
     """
     await axiom.arrancar()
     app.state.axiom = axiom
-    # El registro de capacidades es del punto 2 del plan. Se declara el
-    # atributo para que las rutas puedan responder "todavía no existe" en vez
-    # de fallar con AttributeError.
-    app.state.registro_capacidades = None
     logger.info("[servidor] listo")
     try:
         yield

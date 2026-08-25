@@ -25,6 +25,9 @@ from backend.nucleo import config as _config
 from backend.nucleo import bus as _bus
 from backend.nucleo import planificador
 from backend.nucleo.registro import registro
+from backend.nucleo.capacidades import registro as capacidades
+from backend.nucleo.motor import Motor
+from backend.dominio import par as dominio_par
 from backend.captura import universo, pares
 
 logger = logging.getLogger(__name__)
@@ -51,10 +54,27 @@ class Axiom:
     def __init__(self):
         self.pool: asyncpg.Pool | None = None
         self.fuentes = ClienteFuentes()
+        self.motor: Motor | None = None
 
     async def arrancar(self, con_planificador: bool = True) -> None:
         self.pool = await asyncpg.create_pool(dsn(), min_size=2, max_size=10)
         registro.conectar(self.pool)
+        _bus.bus.conectar(self.pool)
+
+        # ── Las capacidades ──────────────────────────────────────────────
+        # Se declaran al arrancar y se verifica el registro entero. Si algo
+        # está mal —un ciclo, un componente inexistente, una operación no
+        # registrada— el servicio NO LEVANTA. Es preferible a responder con
+        # una capacidad incoherente.
+        dominio_par.declarar()
+        problemas = capacidades.verificar()
+        if problemas:
+            raise RuntimeError(
+                "el registro de capacidades es incoherente:\n  - "
+                + "\n  - ".join(problemas))
+        self.motor = Motor(capacidades, {"pool": self.pool,
+                                         "fuentes": self.fuentes})
+        logger.info("[axiom] %d capacidades declaradas", len(capacidades))
 
         # Las fuentes salen del YAML, no del código. Si la configuración es
         # inválida, ConfigInvalida impide arrancar — arrancar con una
@@ -118,6 +138,13 @@ class Axiom:
             _bus.CIERRE_VELA_DIARIA, self._capturar_velas_de_pares,
             "velas_diarias_de_pares")
 
+        # Las capacidades masivas se recalculan por evento. No se suscriben
+        # una por una: cada una declara de qué evento depende y el motor las
+        # agrupa. Agregar una capacidad nueva no requiere tocar esto.
+        _bus.bus.suscribir(
+            _bus.CIERRE_VELA_DIARIA, self._recalcular_capacidades,
+            "capacidades_del_cierre_diario")
+
         _bus.bus.suscribir(
             _bus.CAMBIO_DE_UNIVERSO, self._registrar_cambio_de_universo,
             "log_de_cambios_de_universo")
@@ -168,6 +195,17 @@ class Axiom:
         """Velas diarias de los pares activos."""
         return await pares.capturar_velas(self.pool)
 
+    async def _recalcular_capacidades(self, evento) -> dict:
+        """
+        Recalcula lo que depende del evento que acaba de ocurrir.
+
+        Corre DESPUÉS de la captura de velas —el bus ejecuta los manejadores en
+        paralelo, así que no hay garantía de orden—. Por eso las capacidades
+        leen de la base: si las velas todavía no llegaron, calculan con lo que
+        hay y su `fuente_hasta` lo declara.
+        """
+        return await self.motor.recalcular_masivas(evento.tipo)
+
     async def _catalogar_pares(self):
         """
         Qué pares existen y a qué coin corresponde cada uno.
@@ -194,6 +232,7 @@ class Axiom:
             "bus": _bus.bus.estado(),
             "salud": await registro.salud(horas=24),
             "config": _config.resumen(),
+            "capacidades": len(capacidades),
         }
 
 

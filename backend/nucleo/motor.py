@@ -265,6 +265,64 @@ class Motor:
             return ahora + timedelta(seconds=cap.vigencia.segundos)
         return None      # vence por evento, no por tiempo
 
+    # ── Vigencia ────────────────────────────────────────────────────────────
+    async def vigente(self, nombre: str, objeto_id: str | None = None,
+                      args: dict | None = None) -> tuple[bool, Any]:
+        """
+        ¿Hay un valor guardado que todavía valga? Devuelve (vigente, valor).
+
+        Dos formas de vencer, y la distinción importa:
+
+          · POR TIEMPO — `vigente_hasta` contra ahora. Para lo que cambia
+            continuamente: precio, spread. No hay evento discreto que lo
+            invalide.
+
+          · POR EVENTO — se compara contra CUÁNDO OCURRIÓ el evento por última
+            vez. Si el valor se calculó antes del último cierre de vela, está
+            vencido aunque se haya calculado hace un minuto.
+
+        Lo segundo es lo correcto y por eso hizo falta la tabla `eventos`: el
+        bus vive en memoria y un reinicio lo borra.
+        """
+        pool = self.contexto.get("pool")
+        if pool is None:
+            return False, None
+        cap = self.registro.obtener(nombre)
+
+        async with pool.acquire() as conn:
+            fila = await conn.fetchrow("""
+                SELECT valor_num, valor_json, calculado_at, vigente_hasta,
+                       advertencias
+                FROM valores
+                WHERE capacidad = $1 AND args = $2::jsonb
+                  AND ($3::text IS NULL OR objeto_id = $3)
+                ORDER BY calculado_at DESC LIMIT 1
+            """, nombre, json.dumps(args or {}), objeto_id)
+
+            if fila is None:
+                return False, None
+
+            valor = (float(fila["valor_num"]) if fila["valor_num"] is not None
+                     else (json.loads(fila["valor_json"]) if fila["valor_json"] else None))
+
+            if cap.vigencia.segundos is not None:
+                v = (fila["vigente_hasta"] is not None
+                     and fila["vigente_hasta"] > datetime.now(timezone.utc))
+                return v, valor
+
+            if cap.vigencia.evento:
+                ultimo = await conn.fetchval(
+                    "SELECT MAX(ocurrido_at) FROM eventos WHERE tipo = $1",
+                    cap.vigencia.evento)
+                # Sin registro del evento no se puede afirmar que esté vigente.
+                # Ante la duda, recalcular: es preferible pagar el cálculo a
+                # servir un dato que quizá esté viejo.
+                if ultimo is None:
+                    return False, valor
+                return fila["calculado_at"] >= ultimo, valor
+
+        return False, valor
+
     # ── Persistencia ────────────────────────────────────────────────────────
     async def persistir(self, r: Resultado, args: dict | None = None) -> int:
         """
