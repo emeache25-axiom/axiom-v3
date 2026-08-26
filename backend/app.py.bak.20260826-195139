@@ -28,7 +28,7 @@ from backend.nucleo.registro import registro
 from backend.nucleo.capacidades import registro as capacidades
 from backend.nucleo.motor import Motor
 from backend.dominio import par as dominio_par
-from backend.captura import universo, pares, bitcoin
+from backend.captura import universo, pares
 
 logger = logging.getLogger(__name__)
 
@@ -148,13 +148,6 @@ class Axiom:
             _bus.CAPTURA_DE_VELAS_LISTA, self._recalcular_capacidades,
             "capacidades_tras_las_velas")
 
-        # La serie de BTC va como suscriptor SEPARADO de las velas de pares:
-        # si Binance no responde, eso no debe impedir capturar de MEXC. Son
-        # fuentes distintas sin relación entre sí.
-        _bus.bus.suscribir(
-            _bus.CIERRE_VELA_DIARIA, self._capturar_btc,
-            "serie_de_bitcoin")
-
         _bus.bus.suscribir(
             _bus.CAMBIO_DE_UNIVERSO, self._registrar_cambio_de_universo,
             "log_de_cambios_de_universo")
@@ -228,21 +221,6 @@ class Axiom:
         # La vigencia dice CUÁNDO VENCEN; el evento, cuándo se pueden calcular.
         return await self.motor.recalcular_masivas("cierre_vela_diaria")
 
-    async def _capturar_btc(self, evento) -> dict:
-        """
-        La serie de referencia de Bitcoin: velas diarias y horarias.
-
-        Solo lo que falta —una o dos velas diarias y 24 horarias— porque la
-        captura es incremental: pide desde la última guardada, no desde 2017.
-
-        BTC es un objeto propio, no un par: esta serie viene de Binance, que no
-        es un exchange donde AXIOM opere. Los BTC/USDT de MEXC y CoinEx son
-        otra cosa y viven en `pares`.
-        """
-        d = await bitcoin.capturar_diarias(self.pool)
-        h = await bitcoin.capturar_horarias(self.pool)
-        return {"diarias": d, "horarias": h}
-
     async def _catalogar_pares(self):
         """
         Qué pares existen y a qué coin corresponde cada uno.
@@ -265,7 +243,6 @@ class Axiom:
         return {
             "universo": await universo.estado(self.pool),
             "pares": await pares.estado(self.pool),
-            "bitcoin": await bitcoin.estado(self.pool),
             "planificador": planificador.estado(),
             "bus": _bus.bus.estado(),
             "salud": await registro.salud(horas=24),
