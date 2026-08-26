@@ -141,9 +141,12 @@ class Axiom:
         # Las capacidades masivas se recalculan por evento. No se suscriben
         # una por una: cada una declara de qué evento depende y el motor las
         # agrupa. Agregar una capacidad nueva no requiere tocar esto.
+        # Las capacidades del par esperan a que las velas estén guardadas, no
+        # al cierre del día: el bus ejecuta en paralelo y calcularían con los
+        # datos de ayer.
         _bus.bus.suscribir(
-            _bus.CIERRE_VELA_DIARIA, self._recalcular_capacidades,
-            "capacidades_del_cierre_diario")
+            _bus.CAPTURA_DE_VELAS_LISTA, self._recalcular_capacidades,
+            "capacidades_tras_las_velas")
 
         _bus.bus.suscribir(
             _bus.CAMBIO_DE_UNIVERSO, self._registrar_cambio_de_universo,
@@ -192,8 +195,17 @@ class Axiom:
         return await planificador.reintentar_cierre(self.pool)
 
     async def _capturar_velas_de_pares(self, evento) -> dict:
-        """Velas diarias de los pares activos."""
-        return await pares.capturar_velas(self.pool)
+        """
+        Velas diarias de los pares activos.
+
+        Al terminar publica su propio evento: lo que depende de las velas tiene
+        que esperar a que estén. Quien publica sigue sin saber quién escucha.
+        """
+        r = await pares.capturar_velas(self.pool)
+        await _bus.bus.publicar(
+            _bus.CAPTURA_DE_VELAS_LISTA, {"resultado": r},
+            origen="app.capturar_velas_de_pares")
+        return r
 
     async def _recalcular_capacidades(self, evento) -> dict:
         """
@@ -204,7 +216,10 @@ class Axiom:
         leen de la base: si las velas todavía no llegaron, calculan con lo que
         hay y su `fuente_hasta` lo declara.
         """
-        return await self.motor.recalcular_masivas(evento.tipo)
+        # Las capacidades declaran depender de `cierre_vela_diaria` —que es su
+        # vigencia conceptual— aunque las dispare el evento de captura lista.
+        # La vigencia dice CUÁNDO VENCEN; el evento, cuándo se pueden calcular.
+        return await self.motor.recalcular_masivas("cierre_vela_diaria")
 
     async def _catalogar_pares(self):
         """

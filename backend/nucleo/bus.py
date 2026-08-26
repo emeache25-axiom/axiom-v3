@@ -61,12 +61,26 @@ REFRESCO_DE_COINS    = "refresco_de_coins"
 CAMBIO_DE_UNIVERSO   = "cambio_de_universo"    # alta, baja o cambio de estado
 SENAL_DE_ESTRATEGIA  = "senal_de_estrategia"
 
+# Terminó de guardarse la captura de velas diarias.
+#
+# Existe porque el bus ejecuta los manejadores EN PARALELO y eso produjo un
+# desfase real: medido el 25/08/2026, `capacidades_del_cierre_diario` y
+# `velas_diarias_de_pares` arrancaron a las 21:05:00 exactas; las capacidades
+# terminaron a los 32 s y las velas a los 177. Las capacidades calcularon con
+# las velas del día ANTERIOR, y quedaban un día atrasadas de forma permanente.
+#
+# Encadenar la llamada dentro del manejador de velas también lo resolvería,
+# pero ese manejador no tiene por qué saber quién depende de él. Un evento
+# nuevo mantiene el desacople.
+CAPTURA_DE_VELAS_LISTA = "captura_de_velas_lista"
+
 EVENTOS = (
     CIERRE_VELA_DIARIA,
     CIERRE_VELA_HORARIA,
     REFRESCO_DE_COINS,
     CAMBIO_DE_UNIVERSO,
     SENAL_DE_ESTRATEGIA,
+    CAPTURA_DE_VELAS_LISTA,
 )
 
 
