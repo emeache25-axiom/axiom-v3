@@ -354,7 +354,7 @@ class Motor:
                     r.capacidad, cap.objeto.value, str(objeto_id),
                     json.dumps(clave_args),
                     float(v) if isinstance(v, (int, float)) else None,
-                    json.dumps(v, default=str) if not isinstance(v, (int, float)) else None,
+                    json.dumps(v) if not isinstance(v, (int, float)) else None,
                     r.calculado_at, r.fuente_hasta, r.vigente_hasta,
                     r.vigente_evento or None,
                     # La ventana incompleta viaja como advertencia POR OBJETO:
@@ -366,27 +366,12 @@ class Motor:
                               f"{r.valor.get('ventana_pedida')}"]),
                 ))
         else:
-            # Una capacidad individual puede devolver el número solo, o un
-            # dict que lo acompaña con su percentil y su procedencia. En el
-            # segundo caso el número está en la clave `valor`, y hay que
-            # sacarlo: `valor_num` es la columna INDEXADA para filtrar y
-            # ordenar, y dejar el número dentro del JSON lo vuelve
-            # incomparable — que es justo para lo que sirve la tabla.
-            crudo = r.valor
-            num = crudo
-            if isinstance(crudo, dict):
-                num = crudo.get("valor")
-            es_num = isinstance(num, (int, float)) and not isinstance(num, bool)
-
             filas = [(
                 r.capacidad, cap.objeto.value,
-                str(args.get("objeto_id") or args.get("par_id")
-                    or cap.objeto.value),
+                str(args.get("objeto_id") or args.get("par_id") or "-"),
                 json.dumps(args),
-                float(num) if es_num else None,
-                # El JSON se guarda igual cuando hay estructura además del
-                # número: el percentil y la procedencia no se pierden.
-                json.dumps(crudo, default=str) if isinstance(crudo, dict) else None,
+                float(r.valor) if isinstance(r.valor, (int, float)) else None,
+                json.dumps(r.valor) if not isinstance(r.valor, (int, float)) else None,
                 r.calculado_at, r.fuente_hasta, r.vigente_hasta,
                 r.vigente_evento or None, json.dumps(r.advertencias),
             )]
@@ -413,23 +398,17 @@ class Motor:
 
     async def recalcular_masivas(self, evento: str) -> dict:
         """
-        Recalcula y persiste todo lo que depende de un evento.
+        Recalcula y persiste todas las capacidades masivas que dependen de un
+        evento.
 
-        LO QUE DECIDE EL PRECÁLCULO ES LA VIGENCIA, NO EL ALCANCE.
-
-        Si una capacidad declara que vence con `cierre_vela_diaria`, es porque
-        quiere recalcularse ahí — sea de un objeto o de tres mil. `Alcance`
-        describe la FORMA del resultado y no debería decidir su ciclo de vida.
-
-        La versión anterior filtraba por `Alcance.MASIVA` y dejaba afuera al
-        perfil de BTC, que es de un solo objeto: no se recalculaba ni se
-        persistía, así que no acumulaba historia.
-
-        Las capacidades no se suscriben una por una: se declaran con su
-        vigencia y el motor las agrupa.
+        Es lo que el bus dispara al cerrar el día: las capacidades no se
+        suscriben una por una, se declaran con su vigencia y el motor las
+        agrupa.
         """
         hechas, fallidas = {}, {}
         for cap in self.registro._caps.values():
+            if cap.alcance is not Alcance.MASIVA:
+                continue
             if cap.vigencia.evento != evento:
                 continue
             try:
