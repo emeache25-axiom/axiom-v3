@@ -1,4 +1,64 @@
+#!/usr/bin/env python3
 """
+AXIOM v3 — Sacar las capacidades intradía: estaban mal dirigidas.
+
+════════════════════════════════════════════════════════════════════════════════
+EL ERROR, y es de a qué objeto pertenece cada pregunta:
+
+  BTC-LA-COIN es el objeto de referencia del mercado. Sus capacidades describen
+  su ESTADO contra su historia: dónde está, qué tan volátil, cómo se compara
+  con lo que fue. Es información sobre el mercado.
+
+  BTC-EL-PAR —BTC/USDT en MEXC o CoinEx— es un mercado OPERABLE como cualquiera
+  de los otros 2.975. Sus capacidades son las de par: rango, oscilación,
+  repetibilidad, spread.
+
+  `btc_giros_horarios` y `btc_calidad_horaria` preguntan "¿a qué hora conviene
+  comprar?". Eso es una pregunta de PAR OPERABLE, y se estaba haciendo sobre la
+  serie de referencia de Binance — un exchange donde AXIOM ni siquiera opera.
+
+  Mal dirigidas dos veces: pregunta de par aplicada a la coin, y sobre un
+  exchange que no se usa para operar.
+
+  Eso explica por qué no llevaban a ningún lado. No es solo que el resultado
+  fuera negativo: la pregunta estaba dirigida al objeto equivocado.
+
+QUÉ SE CONSERVA:
+  `btc_recorrido_oculto` — cuánto se mueve el precio adentro del día contra lo
+  que muestra la vela. Esa SÍ es una propiedad del activo, no una pregunta
+  operativa: describe cómo se comporta BTC, no cuándo comprarlo.
+
+  Y las 78.994 velas horarias quedan guardadas. No se pierden, y van a servir
+  cuando haya una pregunta que las pida — que es el orden correcto: la pregunta
+  primero, el dato después.
+
+Uso:
+    cd /home/migue/apps/axiom-v3
+    python3 scripts/parche_sacar_intradia.py
+    python3 scripts/parche_sacar_intradia.py --revertir
+"""
+from __future__ import annotations
+
+import sys
+import shutil
+import argparse
+import py_compile
+from pathlib import Path
+from datetime import datetime
+
+DESTINO = Path("backend/dominio/btc_intradia.py")
+
+
+def revertir() -> int:
+    bks = sorted(DESTINO.parent.glob(f"{DESTINO.name}.bak.*"))
+    if not bks:
+        print("No hay backups."); return 1
+    shutil.copy2(bks[-1], DESTINO)
+    print(f"Restaurado desde {bks[-1]}")
+    return 0
+
+
+NUEVO = '''"""
 AXIOM v3 — Comportamiento intradía de BTC.
 ════════════════════════════════════════════════════════════════════════════════
 Una sola capacidad, y hay una razón para que sea una sola.
@@ -140,3 +200,43 @@ def declarar() -> None:
                    "días con las 24 horas")))
 
     logger.info("[capacidades] btc: recorrido oculto")
+'''
+
+
+def main() -> int:
+    if not DESTINO.exists():
+        print(f"ERROR: no se encuentra {DESTINO}.", file=sys.stderr); return 1
+
+    src = DESTINO.read_text()
+    if "btc_giros_horarios" not in src:
+        print("Ya está aplicado. Nada que hacer.")
+        return 0
+
+    sello = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup = DESTINO.with_suffix(f".py.bak.{sello}")
+    shutil.copy2(DESTINO, backup)
+    DESTINO.write_text(NUEVO)
+
+    try:
+        py_compile.compile(str(DESTINO), doraise=True)
+    except py_compile.PyCompileError as e:
+        shutil.copy2(backup, DESTINO)
+        print(f"ERROR de sintaxis: {e}\nSe restauró el backup.", file=sys.stderr)
+        return 1
+
+    print(f"Backup: {backup}")
+    print("  ~ btc_giros_horarios  SACADA (pregunta de par, objeto coin)")
+    print("  ~ btc_calidad_horaria SACADA (ídem)")
+    print("  ~ btc_recorrido_oculto se conserva: describe el activo")
+    print("\nLimpiar sus valores persistidos:")
+    print("""  sudo -u postgres psql -d axiom_v3 -c \\
+    "DELETE FROM valores WHERE capacidad IN ('btc_giros_horarios','btc_calidad_horaria');" """)
+    print("\nY después:  sudo systemctl restart axiom-v3")
+    return 0
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--revertir", action="store_true")
+    a = ap.parse_args()
+    sys.exit(revertir() if a.revertir else main())
