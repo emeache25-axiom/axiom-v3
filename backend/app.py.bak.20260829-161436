@@ -30,7 +30,7 @@ from backend.nucleo.motor import Motor
 from backend.dominio import par as dominio_par
 from backend.dominio import mercado as dominio_mercado
 from backend.dominio import btc_intradia as dominio_intradia
-from backend.captura import universo, pares, bitcoin, opciones
+from backend.captura import universo, pares, bitcoin
 
 logger = logging.getLogger(__name__)
 
@@ -159,13 +159,6 @@ class Axiom:
             _bus.CIERRE_VELA_DIARIA, self._capturar_btc,
             "serie_de_bitcoin")
 
-        # La cadena de opciones va SEPARADA: si Deribit no responde, eso no
-        # debe impedir capturar de CoinGecko ni de MEXC. Fuentes distintas sin
-        # relación entre sí.
-        _bus.bus.suscribir(
-            _bus.CIERRE_VELA_DIARIA, self._capturar_opciones,
-            "cadena_de_opciones")
-
         _bus.bus.suscribir(
             _bus.CAMBIO_DE_UNIVERSO, self._registrar_cambio_de_universo,
             "log_de_cambios_de_universo")
@@ -254,15 +247,6 @@ class Axiom:
         h = await bitcoin.capturar_horarias(self.pool)
         return {"diarias": d, "horarias": h}
 
-    async def _capturar_opciones(self, evento) -> dict:
-        """
-        La foto diaria de la cadena de opciones de BTC.
-
-        Existe porque la pregunta "¿hoy hay más interés abierto que ayer?"
-        necesita tener ayer guardado, y Deribit solo devuelve el presente.
-        """
-        return await opciones.capturar(self.pool)
-
     async def _catalogar_pares(self):
         """
         Qué pares existen y a qué coin corresponde cada uno.
@@ -286,7 +270,6 @@ class Axiom:
             "universo": await universo.estado(self.pool),
             "pares": await pares.estado(self.pool),
             "bitcoin": await bitcoin.estado(self.pool),
-            "opciones": await opciones.estado(self.pool),
             "planificador": planificador.estado(),
             "bus": _bus.bus.estado(),
             "salud": await registro.salud(horas=24),
