@@ -30,7 +30,7 @@ from backend.nucleo.motor import Motor
 from backend.dominio import par as dominio_par
 from backend.dominio import mercado as dominio_mercado
 from backend.dominio import btc_intradia as dominio_intradia
-from backend.captura import universo, pares, bitcoin, opciones, funding
+from backend.captura import universo, pares, bitcoin, opciones
 
 logger = logging.getLogger(__name__)
 
@@ -261,12 +261,7 @@ class Axiom:
         Existe porque la pregunta "¿hoy hay más interés abierto que ayer?"
         necesita tener ayer guardado, y Deribit solo devuelve el presente.
         """
-        cadena = await opciones.capturar(self.pool)
-        # El funding va acá y no en su propio suscriptor porque comparte
-        # fuente con las opciones: si Deribit no responde, fallan juntas, y
-        # separarlas daría dos alertas del mismo problema.
-        tasas = await funding.capturar(self.pool)
-        return {"opciones": cadena, "funding": tasas}
+        return await opciones.capturar(self.pool)
 
     async def _catalogar_pares(self):
         """
@@ -292,7 +287,6 @@ class Axiom:
             "pares": await pares.estado(self.pool),
             "bitcoin": await bitcoin.estado(self.pool),
             "opciones": await opciones.estado(self.pool),
-            "funding": await funding.estado(self.pool),
             "planificador": planificador.estado(),
             "bus": _bus.bus.estado(),
             "salud": await registro.salud(horas=24),
