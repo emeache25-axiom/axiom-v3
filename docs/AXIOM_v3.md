@@ -199,9 +199,10 @@ a v3.
 | ¿Y el ecosistema de coins? | ⏳ | ⏳ |
 | ¿Cambió algo respecto de ayer/la semana? | ⏳ | ⏳ |
 | ¿Cuánto capital hay y cómo se reparte por sector? | ✅ | ❌ sin capacidad de sectores en v3 (v2) |
-| ¿Qué es esta coin, qué hace, qué supply? | ✅ | ❌ sin módulo de coin en v3 (v2) |
-| ¿Cómo viene precio/volumen/ranking? | ✅ | ❌ (v2) — dato en `coin_diaria`, sin capacidad |
-| ¿Dónde se opera y en qué mercados? | ✅ | 🟡 datos en `pares`, sin capacidad de consulta |
+| ¿Qué es esta coin, qué hace, qué supply? | ✅ | ❌ `sector`/`categorias` vacíos, sin supply capturado |
+| ¿Cómo viene precio/volumen/ranking? | ✅ | ✅ **`coin_historia`** (historia corta: desde ~13/08) |
+| ¿Dónde se opera y en qué mercados? | ✅ | ✅ **`coin_mercados`** (MEXC/CoinEx por `coin_id`) |
+| — estado actual (precio, cap, puesto, variaciones) | ✅ | ✅ **`coin_estado`** |
 | ¿Qué eventos tiene por delante (desbloqueos)? | ❌ | ❌ sin captura |
 | ¿Qué se dice de ella? | ✅ | ❌ sin noticias en v3 (v2) |
 | **Contexto macro — funding en derivados** | 🟡 | ✅ **`btc_funding`** (nuevo, 02/09) |
@@ -634,10 +635,10 @@ contexto. LLM en producción: **Gemini Flash**.
 > v3** —no hay archivo ni router montado en `app.py`/`rutas.py`—. No fue una
 > limpieza ejecutada: nunca se portaron desde v2.
 
-### 6.3 Las 12 capacidades declaradas
+### 6.3 Las 15 capacidades declaradas
 
-Fuente autoritativa: `GET /api/capacidades` → **total: 12**. Una sola operación
-implementada: **`reunir`**.
+Fuente autoritativa: `GET /api/capacidades` → **total: 15** (12 + 3 de coin,
+02/09). Una sola operación implementada: **`reunir`**.
 
 **Mercado / BTC-referencia (9):**
 
@@ -658,10 +659,22 @@ implementada: **`reunir`**.
 estrategias (§10): describen el comportamiento del par que un catálogo de
 estrategias cruzaría con sus requisitos.
 
+**Coin (3):** `coin_estado`, `coin_historia`, `coin_mercados` — INDIVIDUAL,
+consulta al pedido (ver §6.6). Primeras capacidades sobre un objeto con id que no
+es BTC.
+
 Las cinco dimensiones de BTC son **independientes por diseño** (correlaciones
 bajas a 30 días); `btc_perfil` deliberadamente **no colapsa en una etiqueta**
 —"alcista"/"bajista" destruiría lo que distingue un mercado que sube tranquilo de
 uno que sube violento—.
+
+> **Hallazgo (02/09): v3 tiene un solo evento de vigencia implementado,**
+> `cierre_vela_diaria`. Las 15 capacidades cuelgan de él. El planificador corre 5
+> jobs (§6.5) y el diseño nombra 5 eventos (§7.2), pero como *eventos de
+> invalidación de caché de capacidades* sólo existe el del cierre diario.
+> `refresco_de_coins` y `cambio_universo` están en el diseño y son los naturales
+> para las capacidades de coin (refresco cada 6h), pero aún no existen — por eso
+> las de coin usan `cierre_vela_diaria` provisoriamente.
 
 ### 6.4 Posicionamiento (Deribit) — construido esta sesión
 
@@ -719,6 +732,34 @@ dispara al levantarse dentro de 2 h; más tarde lo resuelve
 `recuperar_dias_faltantes`. **Monitoreo:** `scripts/monitor.py` reporta qué pasó,
 qué está en curso y huecos de historia. Verificado 2026-09-01: cadena
 `cierre_del_dia → velas → capacidades` intacta, sin huecos.
+
+### 6.6 Coin — capa INFORMACIÓN sobre una coin (construido esta sesión)
+
+`backend/dominio/coin.py`, enganchado en `backend/app.py`. Tres capacidades
+INDIVIDUAL sobre objeto `coin`, consulta **al pedido** (no masivas: el estado de
+una coin puntual no se usa para comparar 3.000 entre sí). Primeras capacidades
+sobre un objeto con id distinto de BTC.
+
+- **`resolver_coin`** — la pieza base y **fuente de verdad** de "qué coin es
+  'btc'": resuelve por id / symbol / nombre, priorizando el match más fuerte y,
+  ante symbols repetidos, la de mejor puesto, informando las otras (`ambiguo`).
+  Cuando el copiloto de skills se porte a v3, reusa esto.
+- **`coin_estado`** — foto actual desde `coins`: precio, cap, volumen, puesto,
+  variaciones 24h/7d. Verificado: `btc` → bitcoin, puesto 1. ✅
+- **`coin_historia`** — evolución desde `coin_diaria`: cambio de precio y de
+  puesto sobre la ventana. Declara los días realmente disponibles (la serie
+  arrancó ~13/08: pedir 30 devuelve ~12 hoy). ✅
+- **`coin_mercados`** — dónde se opera, desde `pares` por `coin_id`: exchanges,
+  pares y mínimo de orden. Verificado: `eth` → 11 pares en MEXC/CoinEx. ✅
+
+**Lo que queda ❌ declarado (falta de captura, no se inventó capacidad):** "qué
+hace / sector / categorías" (`sector` y `categorias` vacíos en las 3.289 coins,
+medido) y "supply" (no está en el esquema). Ambas requieren mapear campos de
+CoinGecko que el sync no trae.
+
+**Pulido pendiente (menor, no bloqueante):** `coin_mercados` no declara
+`_fuente_hasta` (queda `null`); agregar el `capturado_at` de `pares` cuando se
+retoque.
 
 ---
 

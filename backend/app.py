@@ -31,6 +31,7 @@ from backend.dominio import par as dominio_par
 from backend.dominio import mercado as dominio_mercado
 from backend.dominio import btc_intradia as dominio_intradia
 from backend.dominio import posicionamiento as dominio_posicionamiento
+from backend.dominio import coin as dominio_coin
 from backend.captura import universo, pares, bitcoin, opciones, funding
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,7 @@ class Axiom:
         dominio_mercado.declarar()
         dominio_intradia.declarar()
         dominio_posicionamiento.declarar()
+        dominio_coin.declarar()
         problemas = capacidades.verificar()
         if problemas:
             raise RuntimeError(
