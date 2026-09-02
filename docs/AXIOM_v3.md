@@ -316,10 +316,10 @@ con **una sola** llamada al LLM. ~5 segundos, una llamada, cero errores de
 contexto. LLM en producción: **Gemini Flash**.
 
 > **Decisión firme del fundacional:** el copiloto de skills es la evolución de
-> Kepler, no su complemento. No conviven. Quedan fuera `chat.py` (function
-> calling), el orquestador multi-agente y `chat_groq`. *(Estado de limpieza de
-> esos módulos en v3: no verificado en esta sesión — pendiente de confirmar que
-> no quedaron colgados.)*
+> Kepler, no su complemento. No conviven. **Verificado 02/09:** `chat.py`
+> (function calling), el orquestador multi-agente y `chat_groq` **no existen en
+> v3** —no hay archivo ni router montado en `app.py`/`rutas.py`—. No fue una
+> limpieza ejecutada: nunca se portaron desde v2.
 
 ### 5.3 Las 12 capacidades declaradas
 
@@ -488,7 +488,7 @@ Total ~230 MB, y **no hay una sola tabla-basura en el top**:
 | 4 tablas del bot v1 sin lectores | ✅ **no existen** (`bot_%` → 0 filas) |
 | `strat_signals` con 36k filas, 1 estrategia | ✅ **no existe** (`%strat%` → 0) |
 | Endpoints y tablas heredados de v1 | ✅ esquema nuevo: migraciones 001→009, todas de v3 |
-| 18 capacidades declaradas, 8 usadas | recontado: **12 declaradas** (runtime) |
+| 18 capacidades declaradas, 8 usadas | recontado: **12 declaradas** (runtime, = 12 en archivos vivos; un grep previo contó 15 por incluir `.bak`) |
 | `alerts_job` cada minuto para 2 alertas | n/a — no portado a v3 |
 
 **v3 no arrastró la deuda de v2: se construyó de cero en una base nueva.** Las
@@ -502,9 +502,12 @@ haber traído nada que inventariar.
   agregar, filtrar/ordenar, detectar discrepancia, proyectar, simular — ninguna
   existe aún. Todo lo de investigación y desarrollo depende de ellas.
 - **`regimen_btc` no existe en v3.** El diseño lo usa como ejemplo central
-  (clasificar 12 señales), pero no está implementado.
-- **Limpieza de los módulos conversacionales viejos** (`chat.py`, orquestador,
-  `chat_groq`): declarada en el fundacional, no verificada en esta sesión.
+  (clasificar 12 señales) y sigue mencionado en docstrings de `capacidades.py` y
+  `motor.py`, pero **no está implementado** (verificado 02/09: sin declaración,
+  sin módulo, ausente de `/api/capacidades`). Es el consumidor natural de la
+  operación `clasificar` cuando exista.
+- **Módulos conversacionales viejos** (`chat.py`, orquestador, `chat_groq`): ✅
+  no existen en v3 (verificado 02/09). Ya no es deuda.
 - **Widgets, vistas invocables, estado de trabajo persistido:** diseñados, no
   construidos en v3.
 
