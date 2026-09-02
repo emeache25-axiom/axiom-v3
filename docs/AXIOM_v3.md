@@ -17,14 +17,15 @@
 ## Índice
 
 1. Qué es AXIOM v3 — la premisa
-2. Qué tiene que poder responder
+2. Qué tiene que poder responder *(incluye el mapa completo por capa)*
 3. La arquitectura — capacidades y operaciones
-4. Cómo se declara cada pieza
-5. Estado real de implementación (verificado 2026-09-02)
-6. Datos, eventos y vigencia
-7. Inventario y deuda — re-medido
-8. Método y principios
-9. Qué sigue
+4. El vocabulario de propiedades
+5. Cómo se declara cada pieza
+6. Estado real de implementación (verificado 2026-09-02)
+7. Datos, eventos y vigencia
+8. Inventario y deuda — re-medido
+9. Método y principios
+10. Qué sigue
 
 ---
 
@@ -109,6 +110,45 @@ precio que no se alcanzó.
 > dependen de reaccionar en segundos no funcionan con un humano en el medio. Eso
 > se declara en el catálogo, no se descubre operando.
 
+### 1.5 Cómo se usa — tres modalidades
+
+No compiten: se alimentan.
+
+| Modalidad | Cuándo | Qué pasa |
+|---|---|---|
+| **Preguntar** | hay una pregunta formada | el copiloto responde, con widgets si corresponden |
+| **Explorar** | no hay pregunta formada, se quiere mirar | las secciones |
+| **Acompañar** | se está mirando algo y surge la pregunta | se pregunta *desde* la sección, con contexto |
+
+La tercera ata las otras dos: hace que las secciones **alimenten** al copiloto en
+vez de competir con él. *"¿Cómo lo ves?"* no significa nada sin saber qué se está
+mirando; con contexto, el copiloto sabe que estás en Gráficos con ROSE/BTC en
+diario con tal indicador. **El contexto dice SOBRE QUÉ hablar, no CON QUÉ datos:**
+el copiloto usa sus capacidades para traer lo que necesite, no queda limitado a lo
+que la pantalla ya cargó.
+
+**El copiloto opera la aplicación**, no sólo responde: navega (*"mostrame el
+gráfico de ese par"*), actúa sobre los datos (*"agregalo a la watchlist"*) y opera
+la vista donde estás (*"agregá una EMA de 21"* cambia lo que la sección está
+haciendo en ese momento). Para eso el sistema declara sus **vistas** igual que sus
+capacidades: qué existe, qué parámetros acepta. Mismo patrón que los widgets —
+declarar en backend, renderizar en frontend.
+
+**La conversación tiene foco.** *"Hablame de este par"* → *"agregalo a la
+watchlist"* → *"mostrame el gráfico"*: el "lo" y el "me" refieren al mismo objeto
+sin nombrarlo. Hoy no existe —cada consulta resuelve su target desde cero—; v3
+necesita un **objeto en foco** que persiste hasta que cambie, y que puede venir de
+lo que se mira o de lo que se viene hablando.
+
+**La línea de confirmación** no está en si el copiloto escribe, sino en si queda
+algo funcionando por su cuenta después. *Directo* (se deshace fácil: watchlist,
+mostrar gráfico, poner indicador, crear alerta) → sin confirmación. *Con
+confirmación* (activar una estrategia que empezará a notificar, borrar cosas con
+historia).
+
+*(Todo esto es diseño: en v3 hoy el copiloto de skills responde, pero no opera la
+app ni mantiene foco persistente — ver §6.)*
+
 ---
 
 ## 2. Qué tiene que poder responder
@@ -137,11 +177,108 @@ ninguna es una pantalla: todas son preguntas a un sistema que sabe cosas.
 > respuesta es un ranking de "estas van a subir", el sistema dejó de analizar y
 > empezó a pronosticar.
 
+### 2.1 El mapa completo, por capa — estado v3 (verificado 02/09)
+
+El fundacional (16/08) desglosó ~50 preguntas por las cuatro capas. Aquel mapa
+describía en buena parte lo que **v2** respondía. Abajo el mismo mapa con los
+estados **corregidos a lo que v3 responde hoy**, medido contra el server: v3 tiene
+4 módulos de dominio (`btc_intradia`, `mercado`, `par`, `posicionamiento`), 12
+capacidades y una operación. Muchas capacidades de coin/sector/noticias de v2 aún
+**no se portaron**.
+
+Marcas: ✅ v3 hoy · 🟡 el dato existe, falta exponerlo · ⏳ falta historia (sólo
+tiempo) · ❌ falta fuente, capacidad o modelo · **(v2)** existía en v2, no portado
+a v3.
+
+**INFORMACIÓN** — *el estado de las cosas, sin interpretación*
+
+| Pregunta | v2 (16/08) | v3 (02/09) |
+|---|---|---|
+| ¿En qué régimen está Bitcoin? | ✅ | ❌ `regimen_btc` no existe en v3 |
+| ¿Régimen del universo operable? | ✅ | ❌ (v2) |
+| ¿Y el ecosistema de coins? | ⏳ | ⏳ |
+| ¿Cambió algo respecto de ayer/la semana? | ⏳ | ⏳ |
+| ¿Cuánto capital hay y cómo se reparte por sector? | ✅ | ❌ sin capacidad de sectores en v3 (v2) |
+| ¿Qué es esta coin, qué hace, qué supply? | ✅ | ❌ sin módulo de coin en v3 (v2) |
+| ¿Cómo viene precio/volumen/ranking? | ✅ | ❌ (v2) — dato en `coin_diaria`, sin capacidad |
+| ¿Dónde se opera y en qué mercados? | ✅ | 🟡 datos en `pares`, sin capacidad de consulta |
+| ¿Qué eventos tiene por delante (desbloqueos)? | ❌ | ❌ sin captura |
+| ¿Qué se dice de ella? | ✅ | ❌ sin noticias en v3 (v2) |
+| **Contexto macro — funding en derivados** | 🟡 | ✅ **`btc_funding`** (nuevo, 02/09) |
+| Contexto macro — dominancia BTC | 🟡 | ❌ (v2) |
+| Contexto macro — sentimiento | 🟡 | ❌ (v2) |
+| Contexto macro — on-chain | 🟡 | ❌ (v2) |
+| Cripto vs. mercados tradicionales | ❌ | ❌ |
+| Noticias — ¿qué pasó hoy? / ¿de esta coin? | ✅ | ❌ sin captura de noticias (v2) |
+
+**INVESTIGACIÓN** — *dónde hay algo, no cómo está X. Casi toda depende de comparar
+contra el pasado — la capa que más sufre la falta de historia.*
+
+| Pregunta | v2 | v3 |
+|---|---|---|
+| ¿Hacia dónde se mueve el dinero? / sectores que ganan peso | ⏳ | ⏳ + falta capacidad de sectores |
+| ¿El movimiento es de muchas o de pocas grandes? | ✅ | ❌ (v2 — `dispersion`, no portada) |
+| ¿Entra dinero nuevo o rota el que ya está? | ❌ | ❌ requiere volumen por sector |
+| ¿Qué coins subieron/bajaron puestos? / entró-salió del top | ⏳ | ⏳ |
+| ¿Qué pares se operan más de lo habitual? | ✅ | 🟡 dato en `pares`, sin la operación comparar-historia |
+| ¿Dónde apareció volumen nuevo? | ⏳ | ⏳ |
+| Ineficiencias — spread desalineado / libro fino | 🟡 | ❌ (v2) |
+| Ineficiencias — desajuste mismo activo entre exchanges | ✅ | ❌ (v2 — la operación *discrepancia* no existe) |
+| Ineficiencias — más rango neto por unidad de fricción | ✅ | 🟡 `rango_neto` es dato de par v2, sin capacidad en v3 |
+| Candidatos — pares para operar rangos | ✅ | 🟡 con `oscilacion`/`rango_tipico`, falta filtrar-ordenar |
+
+**ANÁLISIS** — *sobre un objeto concreto; interpretación siempre declarada*
+
+| Pregunta | v2 | v3 |
+|---|---|---|
+| ¿Qué régimen describe el par? (tendencia/rango/colapso) | ✅ | 🟡 `oscilacion` lo insinúa, sin la operación clasificar |
+| ¿Cuánto se mueve y con qué repetibilidad? | ✅ | ✅ **`rango_tipico` + `repetibilidad`** |
+| ¿Es capturable o se lo come la fricción? | ✅ | 🟡 `rango_neto` (v2), no portado como capacidad |
+| ¿Cómo se comporta su libro? ¿Aguanta tamaño? | 🟡 | ❌ libro no capturado en v3 (decisión: bajo demanda) |
+| ¿Qué tan estable es en el tiempo? | ⏳ | ⏳ |
+| **Comportamiento del par (frecuencias medidas)** — franja del máx/mín del día | ❌ | ❌ requiere velas horarias por par |
+| ¿Cuántos días el precio vuelve al punto de partida? | ✅ | ✅ vía `oscilacion` |
+| ¿Días de la semana distintos? | ⏳ | ⏳ |
+| ¿Cuánto tarda en recorrer su rango típico? | ❌ | ❌ |
+| AT — soportes/resistencias, niveles de reacción | ❌ | ❌ |
+| ¿Dónde está respecto de su rango reciente? | ✅ | ✅ (par) / `btc_posicion` (BTC) |
+| Comparación — vs. otros pares / su sector / BTC | ✅ | 🟡 capacidades masivas comparables, falta la vista |
+| Aprovechamiento — ¿qué estrategia se ajusta? / tamaño | ❌ / 🟡 | ❌ |
+
+> **"Comportamiento del par" es tu hipótesis central del rango diario.** Son
+> **frecuencias medidas**, no lecturas: *"el 68 % de los días el mínimo ocurre
+> antes del mediodía UTC"* se verifica contra su tasa base y dice cuándo mirar.
+> Necesita **velas horarias por par** (no ticks) — un salto de granularidad
+> barato. Hoy sólo hay horarias de BTC (`btc_vela_horaria`), no del universo de
+> pares. Es el dato que falta para el frente de investigación de §10.
+
+**DESARROLLO** — *donde el copiloto escribe. Todo ❌ en v2 y en v3: es la capa no
+construida.*
+
+| Bloque | Preguntas | Estado |
+|---|---|---|
+| Diseñar | qué estrategia se ajusta, condiciones de entrada, stop/target, viabilidad | ❌ |
+| Validar | qué habría pasado en 60 días, cuántas señales, si es notificable | ❌ (necesita la operación *simular*) |
+| Activar/operar | vigilar un par, notificar, registrar entrada/stop/target/desenlace | ❌ (notificar: 🟡) |
+| Evaluar | cuántas funcionaron, teórico vs. real, en qué pares funciona, si se degradó | ❌ |
+
+> **La pregunta que ninguna otra plataforma puede responder:** *"¿qué estrategia
+> funciona en pares con estas características?"* — no por teoría, sino por las
+> propias señales medidas. Es el cierre del círculo (capa 4 → análisis), y es todo
+> lo que falta construir.
+
+**Lectura del mapa:** v3 responde hoy, real y bien, la **caracterización de BTC**
+(9 capacidades) y el **comportamiento estadístico de pares** (rango, oscilación,
+repetibilidad) más el **funding**. Todo lo de coins, sectores, noticias, régimen,
+investigación de flujo y desarrollo es diseño no portado o no construido. No es
+regresión: v3 se rehízo de cero con disciplina, y va incorporando por capa.
+
 ---
 
 ## 3. La arquitectura — capacidades y operaciones
 
 ### 3.1 El principio de derivación
+
 
 En v2 cada pregunta produjo una capacidad. v3 se deriva al revés: **buscar qué
 operaciones se repiten entre preguntas**, y que esas sean las capacidades.
@@ -210,12 +347,24 @@ Esto **está implementado y verificado**: el motor (`backend/nucleo/motor.py`)
 compone lo epistémico hacia arriba y registra el estado de cada componente
 (cuántas señales de cuántas se usaron) desde la estructura, no a mano.
 
-### 3.5 Los objetos
+### 3.5 Los objetos y los recortes
 
+**Cosas:**
 - **Coin** — un activo del ecosistema (universo CoinGecko).
 - **Par** — un mercado concreto: activo + quote + exchange (operable en MEXC /
   CoinEx).
 - **Mercado** — el agregado / BTC como referencia.
+- **Estrategia** — una declaración de condiciones, y sus señales.
+
+**Recortes** *(no son cosas: son subconjuntos)*:
+- **Sector** — coins agrupadas. **No tiene precio propio**, tiene el agregado de
+  sus coins.
+- **Universo** — el conjunto completo, de coins o de pares.
+
+Que sector y universo sean recortes del mismo conjunto tiene una consecuencia:
+**las operaciones no necesitan saber sobre cuál operan.** No hay una capacidad
+"mapa de sectores" y otra "panorama del universo": hay **una agregación con un
+recorte declarado**.
 
 El vocabulario cumple una segunda función: además de nombrar propiedades, dice
 **sobre qué objeto valen**. Eso restringe las composiciones válidas —nada de
@@ -224,7 +373,126 @@ usa para rechazar composiciones sin sentido.
 
 ---
 
-## 4. Cómo se declara cada pieza
+## 4. El vocabulario de propiedades
+
+Es la moneda de cambio entre capas y lo que hace posible cruzar una estrategia
+con un par: si la estrategia dice *"necesito rango ≥ 5 %"*, tiene que existir una
+propiedad con ese nombre, medida igual, para todos los pares.
+
+> **Lección de v2:** `volatilidad`, `rango_diario_pct` y `volatility_30d` eran
+> tres nombres del mismo número. Y `cambio_pct` no decía contra qué comparaba — el
+> copiloto inventó un referente plausible dos veces. Cada propiedad declara:
+> **nombre estable · qué mide · unidad · cómo se calcula · cómo se lee.**
+
+> **Nota de estado (02/09).** Las tablas de abajo son el **vocabulario de diseño**
+> (arquitectura, 18/08). En v3 hoy están implementadas como capacidad sólo
+> `rango_tipico`, `oscilacion` y `repetibilidad` (objeto par) y las cinco
+> dimensiones + derivadas de BTC (objeto mercado). El resto —spread, rango_neto,
+> las propiedades de coin y las de conjunto— son **diseño medido en v2, no
+> portado a v3 como capacidad**. Los neutros son datos empíricos reales (medidos
+> sobre 78 días de un período bajista) y **recalibrables**, no constantes.
+
+### 4.1 Propiedades del par
+
+| Propiedad | Qué mide | Unidad | Cómo se lee | v3 |
+|---|---|---|---|---|
+| `precio` | último precio conocido | quote | — | 🟡 |
+| `spread` | (ask − bid) / mid | % | **menos es mejor** · real: 0,38-0,81 % | ❌ |
+| `volumen` | operado en 24 h en ese exchange | USD | ⚠️ no cruzar con capitalización global | 🟡 |
+| `rango_diario` | (high − low) / low del día | % | más = más movimiento | ✅ (insumo) |
+| `rango_tipico` | **mediana** de `rango_diario` | % | el día típico · universo ≈ 5 % | ✅ |
+| `rango_promedio` | media de `rango_diario` | % | ⚠️ **no comparable** | ❌ |
+| `rango_ratio` | promedio / típico | ratio | ~1 parejo · alto = evento o dato roto | ❌ |
+| `repetibilidad` | % de días sobre un umbral | % | **curva** (1/2/3/5/8 %), no un número | ✅ |
+| `oscilacion` | 1 − Efficiency Ratio, en logaritmos | 0-1 | 1 = va y vuelve · 0 = tendencia/colapso | ✅ |
+| `rango_neto` | `rango_tipico` − 2 × `spread` | % | **cota superior** de lo capturable | ❌ |
+| `metricas_hasta` | hasta qué vela llegan | fecha | sin esto un número no dice de cuándo es | ✅ (`fuente_hasta`) |
+
+> **`rango_promedio` queda declarado NO comparable.** Existe sólo para alimentar
+> `rango_ratio`. Ordenar por él pone colapsos arriba: en v2, ARCIELUSDT tenía
+> promedio 219,94 % contra típico 0,46 % — un par plano encabezando el ranking de
+> oscilación, y era el criterio por defecto del screener de v2.
+
+> **`rango_neto` es cota superior, no promesa.** Descuenta spread pero no
+> deslizamiento. En los dos pares con libro medido, la profundidad a ±0,1 % del
+> mid es **cero**: una orden de unos cientos de dólares ya mueve el precio.
+
+### 4.2 Propiedades de la coin
+
+*(Ninguna implementada como capacidad en v3 — no hay módulo de coin. El dato vive
+en `coin_diaria` / `coins`.)*
+
+| Propiedad | Qué mide | Cómo se lee |
+|---|---|---|
+| `precio` | en USD | — |
+| `capitalizacion` | market cap | — |
+| `volumen` | 24 h **global** | ⚠️ distinto del volumen de un par |
+| `puesto` | ranking por capitalización | **casi estático: informa su VARIACIÓN** |
+| `variacion` | cambio de precio | ventana móvil de la fuente, no día contra día |
+| `sector` | supercategoría | derivada de las categorías de la fuente |
+| `estado` | activa / inactiva | inactiva → **no se considera en ninguna capacidad** |
+
+> **Las dos capas no se cruzan.** El volumen de un par sobre la capitalización
+> global no es un ratio: es un artefacto. Numerador de una capa, denominador de
+> otra.
+
+### 4.3 Propiedades de conjunto *(universo o recorte)*
+
+*(Ninguna implementada como capacidad en v3. Los neutros son el aporte más
+valioso de esta tabla — ninguno cae donde uno supondría.)*
+
+| Propiedad | Qué mide | Neutro medido (v2) |
+|---|---|---|
+| `amplitud` | % de miembros en alza | **≈ 42 %**, no 50 |
+| `retorno_mediano` | variación del miembro típico | ≈ −0,17 % |
+| `retorno_ponderado` | ponderada por capitalización | — |
+| `dispersion` | ponderado − mediano | **positivo = se movieron las grandes** |
+| `participacion` | % sobre su media móvil | **≈ 31 %**, no 50 |
+| `concentracion` | ponderado por volumen − mediano | ≈ +0,73 |
+| `fuerza_relativa` | retorno del conjunto − retorno de BTC | ≈ −0,24 % |
+
+> **Los neutros propios son el aporte más importante de esta tabla.** Usar 50 o 0
+> produce lecturas sistemáticamente sesgadas — pasó con la divergencia
+> BTC/universo, donde el umbral de 50 mezclaba divergencia real con la deriva
+> bajista de base. **Salvedad:** salieron de 78 días de un período bajista. Son
+> medidos, no constantes: hay que recalibrarlos y declararlos como recalibrables.
+
+> **`retorno_ponderado` NO es flujo de capital.** Es variación de precio
+> ponderada: un sector puede subir 10 % sin que entre un dólar. En v2 la
+> descripción decía "cuánto se movió el capital" y el copiloto lo repetía. Medir
+> flujo real requiere volumen por sector, que hoy no se mide.
+
+### 4.4 Propiedades de la estrategia
+
+**Qué necesita** — en el mismo vocabulario con que se miden los pares, para
+cruzarse:
+
+| Requisito | Se cruza con |
+|---|---|
+| `rango_minimo` | `rango_tipico` |
+| `oscilacion_minima` | `oscilacion` |
+| `repetibilidad_minima` | `repetibilidad` |
+| `spread_maximo` | `spread` |
+| `volumen_minimo` | `volumen` |
+| `horizonte` | **con el trader** — define si es notificable |
+
+**Qué hace:** `condicion_entrada` · `stop` · `target` · `invalidacion`.
+**Qué produce (la señal):** `emitida_at` · `precio_señal` · `stop` · `target` ·
+`desenlace` (target/stop/invalidada/abierta) · `cerrada_at` · `resultado_teorico`
+· `precio_real` · `resultado_real`.
+**Derivadas de un conjunto de señales:** `señales_emitidas` · `tasa_acierto` ·
+`resultado_acumulado` · `duracion_mediana` · `frecuencia` — **todo por par**.
+
+> **La diferencia entre teórico y real es la medición más valiosa del sistema.**
+> Ninguna plataforma puede medirla porque ninguna sabe a qué precio operaste.
+> Y **`invalidacion` suele faltar**: sin ella una señal que nunca toca stop ni
+> target queda abierta para siempre y contamina toda estadística.
+
+*(Todo este vocabulario de estrategia es diseño: en v3 no hay estrategias aún.)*
+
+---
+
+## 5. Cómo se declara cada pieza
 
 > El diseño original (`declaraciones.md`) mostraba formato YAML, marcándolo como
 > ilustrativo. **La implementación real declara en Python** vía
@@ -232,7 +500,7 @@ usa para rechazar composiciones sin sentido.
 > módulos de `backend/dominio/`, llamados desde `declarar()` de cada módulo. Lo
 > que sigue describe QUÉ se declara; la forma es el objeto Python.
 
-### 4.1 Qué es código y qué es dato
+### 5.1 Qué es código y qué es dato
 
 | Pieza | Forma | Por qué |
 |---|---|---|
@@ -245,7 +513,7 @@ usa para rechazar composiciones sin sentido.
 
 El criterio: **si lo vas a cambiar seguido, es dato.**
 
-### 4.2 Una capacidad simple declara
+### 5.2 Una capacidad simple declara
 
 - **nombre, objeto** (mercado/par/coin), **tipo** (simple), **alcance**
   (individual/masiva)
@@ -262,7 +530,7 @@ El bloque epistémico es obligatorio por construcción: el registro rechaza al
 arrancar una capacidad sin `mide` o sin `no_sabe`. *No declarar los límites es el
 problema que v3 vino a evitar.*
 
-### 4.3 Una capacidad compuesta declara además
+### 5.3 Una capacidad compuesta declara además
 
 - **de qué se compone** (nombres de capacidades), **con qué operación**, **con
   qué parámetros** (defaults que el pedido puede sobrescribir, quedando
@@ -271,21 +539,55 @@ problema que v3 vino a evitar.*
   12 señales, eso cambia la lectura y no puede quedar oculto — sale de la
   estructura.
 
-### 4.4 Data-para-razonar y data-para-mostrar viajan separadas
+### 5.4 Data-para-razonar y data-para-mostrar viajan separadas
 
 Cada capacidad declara su `destila` (campos destinados al razonamiento, que ve el
 LLM) y su `presentacion` (campos para el widget del frontend, que **nunca** se
 mandan al LLM). Es lo que evita que el modelo consuma datasets crudos que no debe
-procesar (ver §5.2).
+procesar (ver §6.2).
+
+### 5.5 La declaración de fuentes
+
+De dónde vienen los datos **se declara una vez y la usan todas las capacidades**.
+Resuelve un problema medido en v2: cinco archivos hablaban con CoinGecko, tres sin
+adaptador; el arreglo de rate limit de un servicio no protegía a los otros. Y
+había dos carpetas de adaptadores, una de ellas (`backend/exchanges/`, 819 líneas)
+sin un solo importador.
+
+Una fuente declara su **modo** (REST es pregunta-respuesta; stream produce datos
+permanentemente), sus **límites** (llamadas/min, reintentos, respeta
+`retry-after`), sus **endpoints** o **canales**, y qué **ofrece / no ofrece** (se
+declara, no se descubre fallando: CoinEx `no_ofrece: [funding, open_interest]`).
+
+> **`retencion` es obligatorio en todo canal de stream.** Un stream sin política
+> de retención declarada es `ob_snapshots` otra vez —el canal de libro que en v2
+> generó 3,9 GB para 2 pares capturando 40 veces por minuto sin propósito—.
+> Valores: `ultimo_valor` · `agregado_por_ventana` · `bajo_demanda` · `todo`
+> (este último exige justificación escrita).
+
+**La respuesta cruda se guarda, y aparte se declara el mapeo** de sus campos al
+vocabulario. Tres razones: un campo que hoy no se usa mañana puede hacer falta —y
+si se guardó crudo está disponible incluso históricamente—; si la fuente cambia su
+formato, queda registrado en vez de leerse como `None` en silencio; y el costo es
+bajo (JSON de coins, no libros: todo v2 sin `ob_snapshots` pesa 89 MB).
+
+### 5.6 El patrón de umbrales (para *clasificar*)
+
+Verificado sobre las 12 señales de `regimen_btc` en v2: **once son la misma
+estructura** —una cascada `if v > X → régimen, etiqueta`—. Por eso la
+interpretación por escalones es declarable como dato (dirección + lista de
+`{sobre: N, lectura, etiqueta}`), y **agregar la señal trece del mismo tipo es
+agregar un bloque, cero código.** *(Aplica cuando exista la operación `clasificar`
+—hoy no está en v3.)*
 
 ---
 
-## 5. Estado real de implementación (verificado 2026-09-02)
+## 6. Estado real de implementación (verificado 2026-09-02)
 
 Esta es la sección que a los cuatro documentos de diseño les faltaba: **qué está
 construido y corriendo, medido contra el server.**
 
-### 5.1 Infraestructura
+### 6.1 Infraestructura
 
 - Servidor personal **`decentralia`** (192.168.0.88), Debian. Python por pyenv,
   venv en `/home/migue/apps/axiom-v3/`. PostgreSQL 17.
@@ -296,7 +598,18 @@ construido y corriendo, medido contra el server.**
   que cambian** (no paquetes completos, para no pisar correcciones locales); scp
   desde `C:\Users\Migueh\Downloads`.
 
-### 5.2 El giro de AGENTES a SKILLS
+**Fuentes integradas (captura, 02/09):** CoinGecko (`universo` — coins), MEXC +
+CoinEx (`pares` — operables), Binance (`bitcoin` — velas y series de BTC),
+Deribit (`funding` + `opciones`). **Sin integrar:** noticias, desbloqueos/eventos
+temporales, on-chain, sentimiento, mercados tradicionales.
+
+**Módulos de dominio vivos (4):** `btc_intradia`, `mercado`, `par`,
+`posicionamiento`. No hay módulo de coin, sector, universo-como-capacidad,
+noticias ni estrategias. **Routers montados (3):** `capacidades`, `sistema`,
+`configuracion` — la app expone el motor de capacidades, no endpoints de
+coin/par/noticia/watchlist.
+
+### 6.2 El giro de AGENTES a SKILLS
 
 Durante varias sesiones se construyó un enfoque **multi-agente** (cinco agentes,
 cada uno un LLM con tool-calling en loop). **Se abandonó — falló
@@ -321,7 +634,7 @@ contexto. LLM en producción: **Gemini Flash**.
 > v3** —no hay archivo ni router montado en `app.py`/`rutas.py`—. No fue una
 > limpieza ejecutada: nunca se portaron desde v2.
 
-### 5.3 Las 12 capacidades declaradas
+### 6.3 Las 12 capacidades declaradas
 
 Fuente autoritativa: `GET /api/capacidades` → **total: 12**. Una sola operación
 implementada: **`reunir`**.
@@ -342,7 +655,7 @@ implementada: **`reunir`**.
 
 **Par (3):** `oscilacion`, `rango_tipico`, `repetibilidad` — las tres **masivas**
 (todo el universo de pares por evento). Son "la mitad medida" de la ecuación de
-estrategias (§9): describen el comportamiento del par que un catálogo de
+estrategias (§10): describen el comportamiento del par que un catálogo de
 estrategias cruzaría con sus requisitos.
 
 Las cinco dimensiones de BTC son **independientes por diseño** (correlaciones
@@ -350,7 +663,7 @@ bajas a 30 días); `btc_perfil` deliberadamente **no colapsa en una etiqueta**
 —"alcista"/"bajista" destruiría lo que distingue un mercado que sube tranquilo de
 uno que sube violento—.
 
-### 5.4 Posicionamiento (Deribit) — construido esta sesión
+### 6.4 Posicionamiento (Deribit) — construido esta sesión
 
 `backend/dominio/posicionamiento.py`, enganchado en `backend/app.py`. Dos
 capacidades INDIVIDUAL sobre `mercado`, vigencia `cierre_vela_diaria`. Son de
@@ -387,9 +700,9 @@ nada. Resultado final: max-pain 72k a −9,38% del spot.
   `objeto_id='mercado'`, `args={}`; las distingue la columna `capacidad`. Un
   DELETE debe filtrar por `capacidad`.
 
-### 5.5 El planificador — 5 jobs, disciplina de eventos ✅
+### 6.5 El planificador — 5 jobs, disciplina de eventos ✅
 
-`backend/nucleo/planificador.py`. El diseño (§6) pedía "eventos, no relojes"; el
+`backend/nucleo/planificador.py`. El diseño (arquitectura §7) pedía "eventos, no relojes"; el
 código **ya lo implementa**, con los comentarios declarando el porqué de cada
 horario.
 
@@ -409,9 +722,9 @@ qué está en curso y huecos de historia. Verificado 2026-09-01: cadena
 
 ---
 
-## 6. Datos, eventos y vigencia
+## 7. Datos, eventos y vigencia
 
-### 6.1 Qué se guarda y qué no
+### 7.1 Qué se guarda y qué no
 
 > **Se guarda lo que no se puede volver a pedir. Lo que la fuente devuelve
 > on-demand se calcula al vuelo.** Segundo eje: lo que se necesita a escala y con
@@ -424,7 +737,19 @@ lecturas de las señales del régimen. **No** se guarda: velas horarias de todo 
 universo (on-demand, de a un par), libro de órdenes en régimen permanente (el
 error de v2 que generó 3,9 GB para 2 pares).
 
-### 6.2 Los cinco eventos
+**Tres modos de cálculo**, y el criterio que decide entre los dos últimos es *¿la
+métrica se usa para comparar objetos entre sí?*:
+
+| Modo | Cuándo | Ejemplos |
+|---|---|---|
+| **Al vuelo** | barato o cambia constantemente | precio, spread, agregados del universo |
+| **Por evento, para todo el universo** | se usa para **comparar** objetos entre sí | rango, oscilación, repetibilidad |
+| **Al pedido, con caché** | caro y se consulta **de a uno** | estadísticas horarias, curva de profundidad |
+
+> Nadie va a rankear 3.000 pares por en qué franja hacen su máximo (al pedido); sí
+> por rango (por evento, para todos).
+
+### 7.2 Los cinco eventos
 
 Casi todo lo que en v2 corría por reloj cuelga de un evento. Cuatro son "llegaron
 datos nuevos"; el quinto es "pasó algo".
@@ -437,7 +762,7 @@ datos nuevos"; el quinto es "pasó algo".
 | cambió el universo | alta, baja o cambio de estado *(el que v2 no tenía)* |
 | se disparó una señal | notificación y registro |
 
-### 6.3 Vigencia y caché
+### 7.3 Vigencia y caché
 
 Toda respuesta viaja con su vigencia — no es opcional cuando el consumidor razona.
 Cada resultado declara `calculado_at` (cuándo se calculó), `fuente_hasta` (hasta
@@ -456,13 +781,13 @@ en segundo plano; una misma capacidad+args ya en curso no se dispara dos veces.
 
 ---
 
-## 7. Inventario y deuda — re-medido (2026-09-02)
+## 8. Inventario y deuda — re-medido (2026-09-02)
 
 El fundacional del 16/08 puso "levantar el inventario de v2" como lo primero, con
 hallazgos preocupantes. **La medición de hoy muestra que v3 arrancó de una base
 limpia: el inventario está saldado por construcción, no como deuda pendiente.**
 
-### 7.1 La base de datos hoy
+### 8.1 La base de datos hoy
 
 Total ~230 MB, y **no hay una sola tabla-basura en el top**:
 
@@ -480,7 +805,7 @@ Total ~230 MB, y **no hay una sola tabla-basura en el top**:
 | `coins` | 1,5 MB | 3.289 |
 | *(resto: btc_vela_diaria, ejecuciones, eventos, halvings, métricas…)* | <1 MB c/u | — |
 
-### 7.2 Los hallazgos del 16/08, actualizados
+### 8.2 Los hallazgos del 16/08, actualizados
 
 | Hallazgo del fundacional (16/08) | Estado hoy (02/09) |
 |---|---|
@@ -496,7 +821,7 @@ migraciones (`001_universo_coins` … `009_funding`, fechadas 24-29/08) definen 
 el esquema. El inventario que el fundacional pedía "hacer" ya está hecho — por no
 haber traído nada que inventariar.
 
-### 7.3 Deuda real que sí queda (honesto)
+### 8.3 Deuda real que sí queda (honesto)
 
 - **Brecha diseño/implementación en operaciones:** 1 de 8 (`reunir`). Clasificar,
   agregar, filtrar/ordenar, detectar discrepancia, proyectar, simular — ninguna
@@ -513,7 +838,7 @@ haber traído nada que inventariar.
 
 ---
 
-## 8. Método y principios
+## 9. Método y principios
 
 Valen tanto como el código. Migue los impuso al ritmo de trabajo.
 
@@ -565,9 +890,9 @@ edita a mano.
 
 ---
 
-## 9. Qué sigue
+## 10. Qué sigue
 
-Con el inventario saldado (§7) y las dos capacidades de posicionamiento cerradas,
+Con el inventario saldado (§8) y las dos capacidades de posicionamiento cerradas,
 los frentes abiertos, con su estado:
 
 **Integración (cierra lo construido):**
@@ -607,13 +932,13 @@ los frentes abiertos, con su estado:
 1. Leé este documento.
 2. Verificá salud: `venv/bin/python scripts/monitor.py --horas 30` y
    `curl -s http://localhost:8003/api/capacidades`.
-3. Elegí frente (§9). El cierre natural de la última sesión es **exponer el
+3. Elegí frente (§10). El cierre natural de la última sesión es **exponer el
    posicionamiento al copiloto**; la tesis de fondo es el **rango diario por par**;
    lo que desbloquea más es **implementar operaciones** más allá de `reunir`.
 
 > **Nota de método final.** Este documento reemplaza cinco archivos que mezclaban
 > diseño (condicional, 16-18/08) con implementación real y ya se contradecían
-> entre sí. Cada número de la §5 y la §7 está medido contra el server el
+> entre sí. Cada número de la §6 y la §8 está medido contra el server el
 > 2026-09-02. Donde hay diseño no implementado, se marca ❌. La disciplina que v3
 > hereda de v2 no es qué código conservar, sino qué preguntas hacerle a un dato
 > antes de confiar en él — y eso incluye a este documento.
