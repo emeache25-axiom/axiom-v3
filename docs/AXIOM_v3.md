@@ -1040,25 +1040,42 @@ de raíz el problema que hundió al enfoque multi-agente (el LLM tragando datase
 crudos de ~89k tokens en loops). **El código orquesta; el LLM sólo entiende y
 redacta.** Cuatro etapas:
 
-1. **Clasificar intención** (código, sin LLM) — patrones sobre el texto →
-   intención + target. "contame de ONT" → `analisis_coin`, target "ONT".
+1. **Clasificar intención** (LLM, decisión 04/09) — el mensaje + el objeto en
+   foco (§10.4) → intención + target + parámetros, como JSON estructurado. En v2
+   esto era regex; se pasó a LLM porque la regex tiene techo bajo: agarra
+   "contame de ONT" pero no "¿cómo viene BTC contra el mercado?" ni "¿qué opciones
+   tiene ethereum?" sin volverse un nido de patrones frágiles. **Contrapartida
+   asumida:** ahora hay DOS llamadas al LLM por turno (clasificar + redactar), no
+   una — v2 tenía una sola. Se acepta porque la clasificación es la puerta a todo
+   lo demás. La llamada de clasificación debe ser **barata y acotada**: prompt
+   corto, salida JSON (`intencion`, `target`, `parametros`), `max_tokens` bajo. No
+   redacta; decide.
 2. **Resolver target** (código) — "ONT" → coin_id "ontology" (en v3, la función
    `resolver_coin` de §6.6, que es la fuente de verdad).
 3. **Ejecutar + destilar capacidades** (código, en paralelo) — la intención mapea
    a un set de capacidades. El código las resuelve por el motor y **destila**:
    toma sólo el carril `destila`, nunca la `presentacion`.
-4. **Redactar** (1 sola llamada LLM) — recibe el material destilado + la
-   disciplina epistémica, y redacta. Una llamada, sin loop, sin tool-calling.
+4. **Redactar** (1 llamada LLM) — recibe el material destilado + la disciplina
+   epistémica, y redacta. Sin loop, sin tool-calling.
 
-Resultado en v2: ~5 s, una llamada, cero errores de contexto (contra ~10 de 11
-fallos y 45-94 s del multi-agente). En v3 el LLM de producción es **Gemini
-Flash**.
+> **Optimización futura, a medir (no implementar de entrada):** un **atajo de
+> reglas** antes del LLM para los casos triviales e inequívocos (un símbolo
+> conocido suelto, un comando directo) los resolvería sin la primera llamada,
+> devolviendo a esos casos el costo de una sola llamada. Pero es optimización:
+> se arranca con "siempre clasifica el LLM" y se agrega el atajo sólo si la
+> latencia de la doble llamada molesta —medir antes de optimizar—.
+
+Resultado en v2 (con clasificación por regex, una sola llamada): ~5 s, cero
+errores de contexto (contra ~10 de 11 fallos y 45-94 s del multi-agente). En v3,
+con clasificación por LLM, son dos llamadas por turno; sigue lejos del
+multi-agente en costo y fiabilidad porque ninguna de las dos traga datasets
+crudos. El LLM de producción es **Gemini Flash** (rápido y barato, lo que ayuda a
+absorber la segunda llamada).
 
 **Lo que cambia en v3** respecto del experimento de v2: la etapa 3 resuelve
 capacidades por el **motor** (`Motor.resolver`), que ya compone lo epistémico y
-respeta vigencia/caché — no llama funciones sueltas. Y la clasificación tiene que
-mapear a más intenciones (no sólo `analisis_coin`): estado de mercado, dominancia,
-mercados de una coin, etc.
+respeta vigencia/caché — no llama funciones sueltas. Y la clasificación es por LLM
+con el foco como contexto (arriba).
 
 ### 10.3 El copiloto no sólo responde: OPERA
 
@@ -1096,6 +1113,24 @@ Ambos modelos referencian **widgets y vistas por su nombre declarado** — el
 copiloto nunca manda HTML ni JS, manda referencias a cosas que el catálogo
 conoce. Eso es lo que hace que el mismo widget lo monte una sección o el copiloto,
 indistintamente.
+
+**El objeto en foco** (decisión 04/09, "lo más eficiente"). Para que el copiloto
+opere la vista donde estás y resuelva referencias ("¿cómo lo ves?"), el frontend
+manda con cada mensaje un **foco mínimo**, no su estado completo:
+`foco: { vista, objeto, parametros_clave }` — p. ej. `{ vista: "grafico", par:
+"ROSE/BTC", temporalidad: "1d" }`. Se eligió esto sobre las alternativas por
+eficiencia y por fidelidad al fundacional (*"el contexto dice SOBRE QUÉ hablar, no
+CON QUÉ datos"*):
+- **no** el estado completo de la UI en cada turno (payload inflado, el error del
+  multi-agente);
+- **no** estado de sesión en el backend (sincronización y complejidad que no
+  rinde con un usuario).
+
+El foco es barato de mandar, suficiente para operar, y **entra como contexto de la
+clasificación** (§10.2): el LLM recibe mensaje + foco y resuelve intención y
+referencia en una pasada. "¿cómo lo ves?" sin foco es inclasificable; con
+`foco: {par: ROSE/BTC}` la intención es "análisis del par en foco". El foco no es
+un extra: es lo que hace clasificable la conversación con contexto.
 
 > **Regla de confirmación** (del fundacional): la línea no está en si el copiloto
 > escribe, sino en si queda algo funcionando por su cuenta. *Directo* (se deshace
