@@ -25,7 +25,8 @@
 7. Datos, eventos y vigencia
 8. Inventario y deuda — re-medido
 9. Método y principios
-10. Qué sigue
+10. El copiloto (diseño)
+11. Qué sigue
 
 ---
 
@@ -277,7 +278,7 @@ contra el pasado — la capa que más sufre la falta de historia.*
 > antes del mediodía UTC"* se verifica contra su tasa base y dice cuándo mirar.
 > Necesita **velas horarias por par** (no ticks) — un salto de granularidad
 > barato. Hoy sólo hay horarias de BTC (`btc_vela_horaria`), no del universo de
-> pares. Es el dato que falta para el frente de investigación de §10.
+> pares. Es el dato que falta para el frente de investigación de §11.
 
 **DESARROLLO** — *donde el copiloto escribe. Todo ❌ en v2 y en v3: es la capa no
 construida.*
@@ -684,7 +685,7 @@ operación implementada: **`reunir`**.
 
 **Par (3):** `oscilacion`, `rango_tipico`, `repetibilidad` — las tres **masivas**
 (todo el universo de pares por evento). Son "la mitad medida" de la ecuación de
-estrategias (§10): describen el comportamiento del par que un catálogo de
+estrategias (§11): describen el comportamiento del par que un catálogo de
 estrategias cruzaría con sus requisitos.
 
 **Coin (3):** `coin_estado`, `coin_historia`, `coin_mercados` — INDIVIDUAL,
@@ -999,40 +1000,204 @@ edita a mano.
 
 ---
 
-## 10. Qué sigue
+## 10. El copiloto (diseño — no implementado en v3)
 
-Con el inventario saldado (§8) y las dos capacidades de posicionamiento cerradas,
-los frentes abiertos, con su estado:
+> **Estado (04/09):** esta sección es **diseño**, no implementación. El copiloto
+> de skills se construyó y validó en v2 (experimental, `/api/experimental/
+> copiloto-skills`) pero **no está portado a v3**. Acá se define cómo debe ser en
+> v3 — y se escribe *antes* de codearlo a propósito, porque la arquitectura del
+> copiloto condiciona cómo se declaran widgets, vistas y capacidades. Diseñar
+> primero es evitar construir capacidades y una UI contra un supuesto.
 
-**Integración (cierra lo construido):**
-- **Exponer funding + opciones al copiloto** — que el copiloto responda "¿cómo
-  está el posicionamiento de BTC?" destilando funding + max-pain. Requiere definir
-  `destila`/`presentacion` de ambas y engancharlas al flujo de skills. Es el paso
-  natural para que las capacidades de esta sesión le sirvan a alguien.
-- **`btc_perfil` en el copiloto** — ya existe como compuesta; falta que el
-  copiloto la sepa invocar y redactar.
+### 10.1 Por qué el copiloto es el centro, y qué significa
+
+v3 existe para que se **converse** con el mercado (§1.3). El copiloto no es una
+sección más: es la forma principal de preguntarle al sistema. Pero "centro" no
+quiere decir "única puerta". El fundacional define tres modalidades que no
+compiten:
+
+- **Preguntar** — hay una pregunta formada → el copiloto responde.
+- **Explorar** — no hay pregunta, se quiere mirar → las **secciones**.
+- **Acompañar** — se está mirando algo y surge la pregunta → se pregunta *desde*
+  la sección, con contexto.
+
+La relación entre secciones y copiloto quedó decidida (04/09): **las vistas y
+widgets existen declarados; navegarlos por menú y pedírselos al copiloto son dos
+formas de operar lo mismo.** El copiloto es *otra forma* de operar las vistas, no
+su dueño. Misma casa, dos puertas. Esto es lo que evita el error de v2 (pantallas
+que consultan datos por su cuenta): en v3 la sección y el copiloto tocan el mismo
+widget declarado, que consume la misma capacidad.
+
+> **Consecuencia de diseño:** el contexto dice SOBRE QUÉ hablar, no CON QUÉ datos.
+> Cuando el copiloto sabe que estás en Gráficos con ROSE/BTC, "¿cómo lo ves?" se
+> resuelve trayendo las capacidades que haga falta — no queda limitado a lo que
+> la pantalla ya cargó.
+
+### 10.2 Las cuatro etapas (heredadas de v2, adaptadas a v3)
+
+El copiloto de skills de v2 estableció el patrón, y se conserva porque resolvió
+de raíz el problema que hundió al enfoque multi-agente (el LLM tragando datasets
+crudos de ~89k tokens en loops). **El código orquesta; el LLM sólo entiende y
+redacta.** Cuatro etapas:
+
+1. **Clasificar intención** (código, sin LLM) — patrones sobre el texto →
+   intención + target. "contame de ONT" → `analisis_coin`, target "ONT".
+2. **Resolver target** (código) — "ONT" → coin_id "ontology" (en v3, la función
+   `resolver_coin` de §6.6, que es la fuente de verdad).
+3. **Ejecutar + destilar capacidades** (código, en paralelo) — la intención mapea
+   a un set de capacidades. El código las resuelve por el motor y **destila**:
+   toma sólo el carril `destila`, nunca la `presentacion`.
+4. **Redactar** (1 sola llamada LLM) — recibe el material destilado + la
+   disciplina epistémica, y redacta. Una llamada, sin loop, sin tool-calling.
+
+Resultado en v2: ~5 s, una llamada, cero errores de contexto (contra ~10 de 11
+fallos y 45-94 s del multi-agente). En v3 el LLM de producción es **Gemini
+Flash**.
+
+**Lo que cambia en v3** respecto del experimento de v2: la etapa 3 resuelve
+capacidades por el **motor** (`Motor.resolver`), que ya compone lo epistémico y
+respeta vigencia/caché — no llama funciones sueltas. Y la clasificación tiene que
+mapear a más intenciones (no sólo `analisis_coin`): estado de mercado, dominancia,
+mercados de una coin, etc.
+
+### 10.3 El copiloto no sólo responde: OPERA
+
+Esto es lo nuevo de v3, lo que el experimento de v2 no tenía (era texto→texto sin
+UI). El copiloto **actúa sobre la aplicación**. Tres tipos de acción, de menor a
+mayor complejidad:
+
+- **Montar** — traer un widget a la conversación: "¿cómo está BTC?" → monta el
+  widget de `btc_estado`.
+- **Navegar / operar una vista** — "mostrame el gráfico de ROSE" (navega),
+  "agregá una EMA de 21" (opera la vista donde estás, sin tocar su JS: opera
+  sobre lo que la vista **declaró** que acepta).
+- **Crear** — "creá una estrategia que…" → el copiloto **escribe una
+  declaración** (un dato: condiciones, stop, target), no código. Igual con
+  indicadores y colecciones.
+
+Que crear sea escribir una declaración es lo que hace posible que el copiloto
+cree cosas sin escribir Python — y es coherente con "estrategias como datos"
+(§1) y con la tabla `valores` genérica (el copiloto crea capacidades dinámicas).
+
+### 10.4 El contrato copiloto ↔ frontend
+
+Cómo el copiloto le dice al frontend qué hacer. Dos modelos, y v3 usa **los dos
+según el caso**, sobre el mismo catálogo declarado:
+
+- **Modelo respuesta (montar).** El copiloto devuelve texto + una lista de
+  widgets a renderizar: `{ texto, widgets: [{ widget, args }] }`. El frontend los
+  monta en el hilo. Es el subconjunto con el que se empieza, y cubre "Preguntar".
+- **Modelo acción (operar).** El copiloto devuelve **acciones** sobre el estado de
+  UI: `{ accion: "navegar", vista, args }`, `{ accion: "operar", vista, cambio }`,
+  `{ accion: "crear", tipo, declaracion }`. El frontend las aplica sobre su
+  estado. Es lo que permite "agregá una EMA" y "activá esta estrategia".
+
+Ambos modelos referencian **widgets y vistas por su nombre declarado** — el
+copiloto nunca manda HTML ni JS, manda referencias a cosas que el catálogo
+conoce. Eso es lo que hace que el mismo widget lo monte una sección o el copiloto,
+indistintamente.
+
+> **Regla de confirmación** (del fundacional): la línea no está en si el copiloto
+> escribe, sino en si queda algo funcionando por su cuenta. *Directo* (se deshace
+> fácil: watchlist, mostrar gráfico, poner indicador) → sin confirmación. *Con
+> confirmación* (activar una estrategia que empezará a notificar, borrar cosas con
+> historia) → el copiloto propone y espera el sí.
+
+### 10.5 Qué declara un widget
+
+El widget es el puente entre una capacidad y su representación. **Declaración en
+backend, render en frontend** (de lo mejor de v2, se conserva). Un widget declara:
+
+- **`consume`** — qué capacidad alimenta el widget (`btc_estado`,
+  `mercado_dominancia`…).
+- **`contextos`** — dónde puede aparecer: `pantalla`, `panel`, `chat`,
+  `dashboard`. El mismo widget sirve al copiloto (en `chat`) y a una sección (en
+  `pantalla`).
+- **`densidades`** — qué campos se muestran según el ancho disponible (compacto /
+  normal / amplio).
+- **`acepta`** — lo que se le puede pedir a la vista. Es lo que v2 no tenía y v3
+  necesita: hace posible que el copiloto opere la vista sin conocer su JS. Un
+  gráfico declara `acepta: { par, temporalidad: [1m…1d], indicadores: [{tipo,
+  periodo}], rango }`.
+
+El widget consume el carril `presentacion` de la capacidad (nunca `destila`, que
+es para el LLM). Los dos carriles viajan separados desde la capacidad (§5.4): lo
+que ve el modelo y lo que ve la pantalla no se mezclan.
+
+### 10.6 Qué declara una vista invocable
+
+Una vista es un widget con estado propio del usuario (`es_espacio_de_trabajo:
+true`): un gráfico con sus indicadores, un screener con sus filtros. Lo que la
+distingue es que el copiloto puede **operarla en curso** — cambiar su estado sin
+recrearla. Su `acepta` es el vocabulario de esa operación: el copiloto traduce
+"agregá una EMA de 21" a un cambio sobre `indicadores`, y el frontend lo aplica.
+
+### 10.7 Orden de construcción (cuando se implemente)
+
+No ahora — esto es la ruta cuando se codee, en orden de dependencia:
+
+1. **Portar el copiloto de skills a v3** — las cuatro etapas contra el motor de
+   capacidades. Empieza texto→texto (Modelo respuesta), como v2 pero sobre el
+   registro de v3.
+2. **Catálogo de widgets declarados** — declarar `consume`/`contextos`/
+   `densidades`/`acepta` para las capacidades que ya existen (`btc_estado`,
+   `coin_*`, `mercado_dominancia`).
+3. **Frontend mínimo centrado en conversación** — el copiloto al centro, montando
+   widgets del catálogo (Modelo respuesta). Las secciones navegables comparten
+   esos widgets.
+4. **Modelo acción** — navegar y operar vistas. Acá entran los espacios de
+   trabajo (el gráfico) y el `acepta`.
+5. **Crear** — el copiloto escribe declaraciones (indicadores, luego estrategias).
+   Lo último, porque "crear" que persiste y opera es lo de mayor riesgo.
+
+Cada escalón es usable solo: con (1)+(2)+(3) ya se conversa con el mercado y se
+ven las respuestas. (4) y (5) son lo que ninguna otra plataforma tiene, y por eso
+van al final —con más base debajo—.
+
+---
+
+## 11. Qué sigue
+
+**El copiloto y el frontend (el centro de v3 — diseñado en §10, sin implementar):**
+- **Portar el copiloto de skills a v3** — las cuatro etapas contra el motor de
+  capacidades. Es lo que convierte a AXIOM de "17 capacidades vía curl" en algo
+  con lo que se conversa. Diseño en §10.7, orden de construcción incluido.
+- **Catálogo de widgets declarados + frontend mínimo** — declarar
+  `consume`/`contextos`/`densidades`/`acepta` para las capacidades que ya existen,
+  y una UI centrada en la conversación que los monte. Página en blanco hoy; el
+  server ya sirve `frontend/` por StaticFiles.
 
 **Investigación (la tesis de v3):**
 - **Rango diario explotable por par** — descubrir la regla de rango inherente a
   cada crypto (hipótesis central). Metodología: hipótesis con regla de rechazo
   antes de mirar, tasa base, robustez por ventana, comparación contra
   buy-and-hold neto de costos. Analizar pares por tramo de capitalización.
-- Ya medido de este lado: `rango_tipico`, `oscilacion`, `repetibilidad`. Falta el
-  otro lado de la ecuación (§4.3 del diseño): las estrategias como datos.
+- Necesita **velas horarias por par** (hoy sólo hay de BTC), y el otro lado de la
+  ecuación: las estrategias como datos.
 
 **Arquitectura (desbloquea capas enteras):**
 - **Implementar más operaciones** — la más urgente es *comparar contra su
   historia* como operación genérica (hoy cada capacidad la reimplementa), luego
-  *clasificar* (habilita `regimen_btc`) y *filtrar y ordenar* (habilita el
-  screener y la pregunta 2 sobre coins).
+  *filtrar y ordenar* (habilita el screener y "pares para operar rangos") y
+  *agregar* (habilita sectores). *Clasificar* quedó sin consumidor urgente al
+  descartarse el régimen (§2.1).
 - **Estrategias como datos** — el catálogo declarativo que responde la pregunta 7
-  y cierra la capa de desarrollo.
+  y cierra la capa de desarrollo. Es también el último escalón del copiloto (§10.7).
 
-**Fuentes nuevas (preguntas hoy imposibles):**
-- **Desbloqueos / eventos temporales** (pregunta 6) — datos con eje temporal, no
-  propiedades de un objeto; no entran en las ocho operaciones, necesitan su propia
-  vía de acceso. Los desbloqueos son especialmente valiosos: eventos con fecha
-  conocida de antemano.
+**Completar INFORMACIÓN (lo que queda de la capa base):**
+- **Capturar sector/categorías/supply** — CoinGecko los da (mapeados en
+  `fuentes.yaml`), pero el sync no los lleva a tabla. Cierra "qué hace / supply"
+  de Coins y desbloquea sectores. Es lo más barato que queda.
+- **Pares — consulta de par individual** — calcado a `coin.py`; el dato y las
+  capacidades masivas ya existen.
+- **Fuentes nuevas:** noticias, desbloqueos (eventos con fecha conocida de
+  antemano — especialmente valiosos), sentimiento, on-chain (con fuente confiable,
+  no el scraping frágil de v2).
+
+**Pulido pendiente:**
+- Migrar las capacidades de coin a la vigencia `refresco_de_coins` (hoy usan
+  `cierre_vela_diaria` provisorio).
+- `coin_mercados` sin `_fuente_hasta`.
 
 ---
 
@@ -1041,7 +1206,7 @@ los frentes abiertos, con su estado:
 1. Leé este documento.
 2. Verificá salud: `venv/bin/python scripts/monitor.py --horas 30` y
    `curl -s http://localhost:8003/api/capacidades`.
-3. Elegí frente (§10). El cierre natural de la última sesión es **exponer el
+3. Elegí frente (§11). El cierre natural de la última sesión es **exponer el
    posicionamiento al copiloto**; la tesis de fondo es el **rango diario por par**;
    lo que desbloquea más es **implementar operaciones** más allá de `reunir`.
 
