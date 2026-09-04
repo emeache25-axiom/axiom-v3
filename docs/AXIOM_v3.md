@@ -194,8 +194,8 @@ a v3.
 
 | Pregunta | v2 (16/08) | v3 (02/09) |
 |---|---|---|
-| ¿En qué régimen está Bitcoin? | ✅ | ❌ `regimen_btc` no existe en v3 |
-| ¿Régimen del universo operable? | ✅ | ❌ (v2) |
+| ¿En qué régimen está Bitcoin? | ✅ | ✅ **reemplazado por `btc_estado`** (reúne perfil+funding+opciones+dominancia, sin etiqueta) |
+| ¿Régimen del universo operable? | ✅ | ❌ necesita propiedades de conjunto (v2) |
 | ¿Y el ecosistema de coins? | ⏳ | ⏳ |
 | ¿Cambió algo respecto de ayer/la semana? | ⏳ | ⏳ |
 | ¿Cuánto capital hay y cómo se reparte por sector? | ✅ | ❌ sin capacidad de sectores en v3 (v2) |
@@ -205,12 +205,23 @@ a v3.
 | — estado actual (precio, cap, puesto, variaciones) | ✅ | ✅ **`coin_estado`** |
 | ¿Qué eventos tiene por delante (desbloqueos)? | ❌ | ❌ sin captura |
 | ¿Qué se dice de ella? | ✅ | ❌ sin noticias en v3 (v2) |
-| **Contexto macro — funding en derivados** | 🟡 | ✅ **`btc_funding`** (nuevo, 02/09) |
-| Contexto macro — dominancia BTC | 🟡 | ❌ (v2) |
+| **Contexto macro — funding en derivados** | 🟡 | ✅ **`btc_funding`** |
+| **Contexto macro — dominancia BTC** | 🟡 | ✅ **`mercado_dominancia`** (CoinGecko /global) |
 | Contexto macro — sentimiento | 🟡 | ❌ (v2) |
 | Contexto macro — on-chain | 🟡 | ❌ (v2) |
 | Cripto vs. mercados tradicionales | ❌ | ❌ |
 | Noticias — ¿qué pasó hoy? / ¿de esta coin? | ✅ | ❌ sin captura de noticias (v2) |
+
+> **Decisión (04/09): no hay "régimen" en v3.** El diseño de v2 tenía un régimen
+> que clasificaba señales (MVRV, Mayer, dominancia, fear&greed, funding) en una
+> etiqueta por temporalidad. En v3 se descartó, por dos razones medidas: (1) de
+> esas ~13 señales sólo existen hoy funding y dominancia —las on-chain venían de
+> endpoints no oficiales de CoinMarketCap, frágiles por diseño—; (2) `btc_perfil`
+> ya decidió deliberadamente NO colapsar en etiqueta, porque "alcista/bajista"
+> destruye lo que distingue un mercado que sube tranquilo de uno violento. Un
+> régimen contradiría esa decisión. En su lugar, **`btc_estado`** reúne las
+> cuatro lecturas que sí se miden (perfil, funding, opciones, dominancia) sin
+> colapsarlas: el que lee decide qué pesa.
 
 **INVESTIGACIÓN** — *dónde hay algo, no cómo está X. Casi toda depende de comparar
 contra el pasado — la capa que más sufre la falta de historia.*
@@ -601,11 +612,11 @@ construido y corriendo, medido contra el server.**
 
 **Fuentes integradas (captura, 02/09):** CoinGecko (`universo` — coins), MEXC +
 CoinEx (`pares` — operables), Binance (`bitcoin` — velas y series de BTC),
-Deribit (`funding` + `opciones`). **Sin integrar:** noticias, desbloqueos/eventos
+Deribit (`funding` + `opciones`), CoinGecko `/global` (dominancia). **Sin integrar:** noticias, desbloqueos/eventos
 temporales, on-chain, sentimiento, mercados tradicionales.
 
-**Módulos de dominio vivos (4):** `btc_intradia`, `mercado`, `par`,
-`posicionamiento`. No hay módulo de coin, sector, universo-como-capacidad,
+**Módulos de dominio vivos (6):** `btc_intradia`, `mercado`, `par`,
+`posicionamiento`, `coin`, `estado_mercado`. No hay módulo de coin, sector, universo-como-capacidad,
 noticias ni estrategias. **Routers montados (3):** `capacidades`, `sistema`,
 `configuracion` — la app expone el motor de capacidades, no endpoints de
 coin/par/noticia/watchlist.
@@ -635,12 +646,12 @@ contexto. LLM en producción: **Gemini Flash**.
 > v3** —no hay archivo ni router montado en `app.py`/`rutas.py`—. No fue una
 > limpieza ejecutada: nunca se portaron desde v2.
 
-### 6.3 Las 15 capacidades declaradas
+### 6.3 Las 17 capacidades declaradas
 
-Fuente autoritativa: `GET /api/capacidades` → **total: 15** (12 + 3 de coin,
-02/09). Una sola operación implementada: **`reunir`**.
+Fuente autoritativa: `GET /api/capacidades` → **total: 17** (04/09). Una sola
+operación implementada: **`reunir`**.
 
-**Mercado / BTC-referencia (9):**
+**Mercado / BTC-referencia (11):**
 
 | Capacidad | Tipo | Mide (resumen) |
 |---|---|---|
@@ -653,6 +664,8 @@ Fuente autoritativa: `GET /api/capacidades` → **total: 15** (12 + 3 de coin,
 | `btc_recorrido_oculto` | simple | mediana(recorrido intradía / rango de la vela) |
 | `btc_funding` | simple | tasa de funding actual (fracción), percentil, signo |
 | `btc_opciones` | simple | put/call + OI (contexto) y max-pain de corto plazo |
+| `mercado_dominancia` | simple | dominancia BTC/ETH, cap y volumen totales, cambio |
+| `btc_estado` | **compuesta** (`reunir`) | perfil + funding + opciones + dominancia, sin etiqueta |
 
 **Par (3):** `oscilacion`, `rango_tipico`, `repetibilidad` — las tres **masivas**
 (todo el universo de pares por evento). Son "la mitad medida" de la ecuación de
@@ -666,15 +679,15 @@ es BTC.
 Las cinco dimensiones de BTC son **independientes por diseño** (correlaciones
 bajas a 30 días); `btc_perfil` deliberadamente **no colapsa en una etiqueta**
 —"alcista"/"bajista" destruiría lo que distingue un mercado que sube tranquilo de
-uno que sube violento—.
+uno que sube violento—. `btc_estado` extiende esa misma disciplina a cuatro
+lecturas (comportamiento, funding, opciones, dominancia): reúne, no clasifica.
 
 > **Hallazgo (02/09): v3 tiene un solo evento de vigencia implementado,**
-> `cierre_vela_diaria`. Las 15 capacidades cuelgan de él. El planificador corre 5
-> jobs (§6.5) y el diseño nombra 5 eventos (§7.2), pero como *eventos de
-> invalidación de caché de capacidades* sólo existe el del cierre diario.
-> `refresco_de_coins` y `cambio_universo` están en el diseño y son los naturales
-> para las capacidades de coin (refresco cada 6h), pero aún no existen — por eso
-> las de coin usan `cierre_vela_diaria` provisoriamente.
+> `cierre_vela_diaria`, y desde el 04/09 también **`refresco_de_coins`** (usado
+> por `mercado_dominancia` y las capacidades de coin deberían migrar a él). El
+> planificador corre 5 jobs (§6.5) y el diseño nombra 5 eventos (§7.2), pero como
+> *eventos de invalidación de caché* recién ahora hay dos vivos. `cambio_universo`
+> sigue en el diseño, sin implementar.
 
 ### 6.4 Posicionamiento (Deribit) — construido esta sesión
 
@@ -760,6 +773,46 @@ CoinGecko que el sync no trae.
 **Pulido pendiente (menor, no bloqueante):** `coin_mercados` no declara
 `_fuente_hasta` (queda `null`); agregar el `capturado_at` de `pares` cuando se
 retoque.
+
+### 6.7 Contexto macro y estado de BTC — dominancia + compuesta (construido esta sesión)
+
+Cierra la sección **Contexto macro** de la capa INFORMACIÓN y da la lectura de
+estado de BTC sin recurrir a un régimen.
+
+**Captura de `/global`** — el endpoint y su mapeo ya estaban declarados en
+`fuentes.yaml` (dominancia btc/eth, cap total, volumen, coins activas). Se agregó
+`capturar_global()` en `backend/captura/universo.py`, enganchada en
+`_refrescar_coins` (misma fuente, misma cadencia; si `/global` falla no tumba el
+refresco de coins). Tabla `mercado_global` (migración 010), una fila por día.
+
+**`mercado_dominancia`** — la brújula: dominancia BTC/ETH, cap y volumen totales,
+y el cambio en puntos porcentuales sobre la ventana. Vigencia `refresco_de_coins`
+(el segundo evento de invalidación vivo). Declara que la dominancia es un cociente
+derivado y reporta `coins_activas_fuente` (el denominador que puede moverse solo).
+Verificado: BTC 59,23 %, ETH 11,08 %.
+
+**`btc_estado`** — compuesta que **reúne** perfil + funding + opciones +
+dominancia: las cuatro caras del estado de BTC en una lectura, sin etiqueta. Es la
+respuesta de v3 a "¿cómo está BTC?" en vez de un régimen. Composición **anidada**
+(perfil trae adentro sus 5 dimensiones) — la primera del sistema. Verificado: 4 de
+4 componentes, epistémica compuesta hacia arriba (hereda los límites de las 9
+mediciones subyacentes).
+
+**Dos hallazgos de diseño que expuso la primera composición heterogénea:**
+
+1. **Parámetros heterogéneos.** El motor propaga los `parametros` de la compuesta
+   a todos sus componentes y valida estricto; `btc_estado` declaraba `ventana`
+   pero `btc_funding` sólo admite `dias` → rechazo. **Regla:** una compuesta no
+   declara parámetros que sus componentes nombran distinto — el estado es una
+   reunión de fotos, cada una con su propia noción de ventana. Si en el futuro se
+   repite mucho, evaluar que el motor propague selectivamente (mejora aparte).
+2. **Fuentes de granularidad mixta.** El motor calcula `fuente_hasta` de una
+   compuesta como el `min()` de las de sus componentes; `btc_estado` mezcló una
+   fuente horaria (funding: `datetime`) con diarias (opciones, dominancia:
+   `date`) y `min()` lanzaba "can't compare datetime to date". **Arreglo de núcleo
+   (motor.py):** normalizar `date`→`datetime(UTC)` sólo para comparar, devolviendo
+   el valor original. Ahora cualquier compuesta puede mezclar fuentes de cualquier
+   granularidad — mejora permanente, no un parche.
 
 ---
 

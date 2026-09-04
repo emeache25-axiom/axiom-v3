@@ -172,8 +172,17 @@ class Motor:
         # La frescura de una compuesta es la de su componente MÁS VIEJO: decir
         # que se calculó recién cuando una de sus partes es de ayer sería
         # mentir por omisión.
+        # Normaliza date->datetime(UTC) para comparar fuentes de granularidad
+        # distinta. btc_estado fue la primera compuesta que mezcló una fuente
+        # horaria (funding: datetime) con diarias (opciones, dominancia: date);
+        # min() sobre esa mezcla lanzaba "can't compare datetime to date". El
+        # key normaliza sólo para comparar: el valor devuelto conserva su tipo.
+        def _a_dt(x):
+            if isinstance(x, datetime):
+                return x if x.tzinfo else x.replace(tzinfo=timezone.utc)
+            return datetime(x.year, x.month, x.day, tzinfo=timezone.utc)
         fuentes = [p.fuente_hasta for p in partes.values() if p.fuente_hasta]
-        fuente_hasta = min(fuentes) if fuentes else None
+        fuente_hasta = min(fuentes, key=_a_dt) if fuentes else None
 
         r = Resultado(
             capacidad=cap.nombre,

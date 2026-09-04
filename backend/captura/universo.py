@@ -352,3 +352,55 @@ async def estado(pool: asyncpg.Pool) -> dict:
               (SELECT MAX(fecha) FROM coin_diaria)                      AS hasta
         """)
     return dict(r)
+
+async def capturar_global(pool: asyncpg.Pool, cliente: ClienteFuentes) -> dict:
+    """
+    El estado global del mercado: dominancia BTC/ETH, capitalización y volumen
+    totales. Del endpoint /global de CoinGecko, ya declarado en fuentes.yaml.
+
+    Una fila por día en mercado_global: la última captura del día gana. Se llama
+    junto con el refresco de coins —misma fuente, misma cadencia—.
+    """
+    r = await cliente.pedir("coingecko", "global")
+    if not r.datos:
+        logger.info("[universo] /global no devolvió datos")
+        return {"guardado": False}
+
+    # /global devuelve un OBJETO (no colección): el mapeo se aplica una vez.
+    # Las rutas del mapeo tienen puntos (data.market_cap_percentage.btc) y
+    # _mapear/_leer ya las resuelven sobre el dict crudo.
+    mapeo = _config.actual().mapeos.get("coingecko", {}).get("global", {})
+    m = _mapear(r.datos, mapeo)
+
+    hoy = _fecha_utc()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO mercado_global (
+                fecha, dominancia_btc, dominancia_eth,
+                capitalizacion_total, volumen_total, coins_activas_fuente,
+                fuente_updated_at, capturado_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7, now())
+            ON CONFLICT (fecha) DO UPDATE SET
+                dominancia_btc       = EXCLUDED.dominancia_btc,
+                dominancia_eth       = EXCLUDED.dominancia_eth,
+                capitalizacion_total = EXCLUDED.capitalizacion_total,
+                volumen_total        = EXCLUDED.volumen_total,
+                coins_activas_fuente = EXCLUDED.coins_activas_fuente,
+                fuente_updated_at    = EXCLUDED.fuente_updated_at,
+                capturado_at         = now()
+        """,
+            hoy,
+            m.get("dominancia_btc"),
+            m.get("dominancia_eth"),
+            m.get("capitalizacion_total"),
+            m.get("volumen_total"),
+            m.get("coins_activas_fuente"),
+            _a_timestamp(m.get("fuente_updated_at")))
+
+    logger.info("[universo] global: dominancia BTC %.2f%%",
+                float(m["dominancia_btc"]) if m.get("dominancia_btc") else 0.0)
+    return {
+        "guardado": True,
+        "fecha": str(hoy),
+        "dominancia_btc": m.get("dominancia_btc"),
+    }

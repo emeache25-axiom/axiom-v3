@@ -32,6 +32,7 @@ from backend.dominio import mercado as dominio_mercado
 from backend.dominio import btc_intradia as dominio_intradia
 from backend.dominio import posicionamiento as dominio_posicionamiento
 from backend.dominio import coin as dominio_coin
+from backend.dominio import estado_mercado as dominio_estado_mercado
 from backend.captura import universo, pares, bitcoin, opciones, funding
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,7 @@ class Axiom:
         dominio_intradia.declarar()
         dominio_posicionamiento.declarar()
         dominio_coin.declarar()
+        dominio_estado_mercado.declarar()
         problemas = capacidades.verificar()
         if problemas:
             raise RuntimeError(
@@ -284,7 +286,15 @@ class Axiom:
         return {"catalogo": r, "vinculos": v}
 
     async def _refrescar_coins(self):
-        return await universo.refrescar(self.pool, self.fuentes)
+        coins = await universo.refrescar(self.pool, self.fuentes)
+        # La dominancia sale del mismo refresco: misma fuente, misma cadencia.
+        # Si /global falla, no debe tumbar el refresco de coins.
+        try:
+            glob = await universo.capturar_global(self.pool, self.fuentes)
+        except Exception:
+            logger.exception("[app] capturar_global falló; sigo con coins")
+            glob = {"guardado": False}
+        return {"coins": coins, "global": glob}
 
     async def _inventariar_coins(self):
         return await universo.inventariar(self.pool, self.fuentes)
