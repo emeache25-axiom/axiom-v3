@@ -177,14 +177,14 @@ ninguna es una pantalla: todas son preguntas a un sistema que sabe cosas.
 > respuesta es un ranking de "estas van a subir", el sistema dejó de analizar y
 > empezó a pronosticar.
 
-### 2.1 El mapa completo, por capa — estado v3 (verificado 02/09)
+### 2.1 El mapa completo, por capa — estado v3 (verificado 04/09)
 
 El fundacional (16/08) desglosó ~50 preguntas por las cuatro capas. Aquel mapa
 describía en buena parte lo que **v2** respondía. Abajo el mismo mapa con los
 estados **corregidos a lo que v3 responde hoy**, medido contra el server: v3 tiene
-4 módulos de dominio (`btc_intradia`, `mercado`, `par`, `posicionamiento`), 12
-capacidades y una operación. Muchas capacidades de coin/sector/noticias de v2 aún
-**no se portaron**.
+6 módulos de dominio (`btc_intradia`, `mercado`, `par`, `posicionamiento`, `coin`,
+`estado_mercado`), 17 capacidades y una operación (`reunir`). Varias capacidades
+de sector/noticias/on-chain de v2 aún **no se portaron**.
 
 Marcas: ✅ v3 hoy · 🟡 el dato existe, falta exponerlo · ⏳ falta historia (sólo
 tiempo) · ❌ falta fuente, capacidad o modelo · **(v2)** existía en v2, no portado
@@ -192,25 +192,40 @@ a v3.
 
 **INFORMACIÓN** — *el estado de las cosas, sin interpretación*
 
-| Pregunta | v2 (16/08) | v3 (02/09) |
+*Estado del mercado* — *el estado en grande. Funde lo que el diseño llamaba
+"Estado general" y "Contexto macro": se solapaban (la dominancia es de ambas, y
+`btc_estado` reúne señales de las dos), así que se organiza por OBJETO y por TIPO
+DE SEÑAL, que es la distinción que sí se sostiene.*
+
+| Pregunta | v2 (16/08) | v3 (04/09) |
 |---|---|---|
-| ¿En qué régimen está Bitcoin? | ✅ | ✅ **reemplazado por `btc_estado`** (reúne perfil+funding+opciones+dominancia, sin etiqueta) |
-| ¿Régimen del universo operable? | ✅ | ❌ necesita propiedades de conjunto (v2) |
-| ¿Y el ecosistema de coins? | ⏳ | ⏳ |
-| ¿Cambió algo respecto de ayer/la semana? | ⏳ | ⏳ |
-| ¿Cuánto capital hay y cómo se reparte por sector? | ✅ | ❌ sin capacidad de sectores en v3 (v2) |
-| ¿Qué es esta coin, qué hace, qué supply? | ✅ | ❌ `sector`/`categorias` vacíos, sin supply capturado |
+| **BTC** — comportamiento (precio) | ✅ | ✅ **`btc_perfil`** (5 dimensiones, sin etiqueta) |
+| **BTC** — presión en derivados (funding) | 🟡 | ✅ **`btc_funding`** |
+| **BTC** — posicionamiento en opciones | ❌ | ✅ **`btc_opciones`** (put/call + max-pain) |
+| **BTC** — lectura reunida ("¿cómo está BTC?") | ✅ régimen | ✅ **`btc_estado`** (reúne los 4, sin etiqueta) |
+| **Mercado** — reparto de capital (dominancia) | 🟡 | ✅ **`mercado_dominancia`** |
+| **Mercado** — sentimiento | 🟡 | ❌ fuente nueva |
+| **Mercado** — on-chain | 🟡 | ❌ fuente nueva (la de v2 era frágil) |
+| **Mercado** — cripto vs. tradicionales | ❌ | ❌ fuente nueva |
+| **Universo** — ecosistema / ¿cambió vs. ayer? | ⏳ | ⏳ historia acumulando |
+| **Universo** — régimen del universo operable | ✅ | ❌ necesita propiedades de conjunto (v2) |
+| **Universo** — capital por sector | ✅ | ❌ falta `sector` poblado + operación agregar |
+
+*Coins* — *sobre una coin concreta*
+
+| Pregunta | v2 | v3 |
+|---|---|---|
+| estado actual (precio, cap, puesto, variaciones) | ✅ | ✅ **`coin_estado`** |
 | ¿Cómo viene precio/volumen/ranking? | ✅ | ✅ **`coin_historia`** (historia corta: desde ~13/08) |
 | ¿Dónde se opera y en qué mercados? | ✅ | ✅ **`coin_mercados`** (MEXC/CoinEx por `coin_id`) |
-| — estado actual (precio, cap, puesto, variaciones) | ✅ | ✅ **`coin_estado`** |
+| ¿Qué es, qué hace, qué supply? | ✅ | ❌ `sector`/`categorias` vacíos, sin supply capturado |
 | ¿Qué eventos tiene por delante (desbloqueos)? | ❌ | ❌ sin captura |
-| ¿Qué se dice de ella? | ✅ | ❌ sin noticias en v3 (v2) |
-| **Contexto macro — funding en derivados** | 🟡 | ✅ **`btc_funding`** |
-| **Contexto macro — dominancia BTC** | 🟡 | ✅ **`mercado_dominancia`** (CoinGecko /global) |
-| Contexto macro — sentimiento | 🟡 | ❌ (v2) |
-| Contexto macro — on-chain | 🟡 | ❌ (v2) |
-| Cripto vs. mercados tradicionales | ❌ | ❌ |
-| Noticias — ¿qué pasó hoy? / ¿de esta coin? | ✅ | ❌ sin captura de noticias (v2) |
+
+*Noticias*
+
+| Pregunta | v2 | v3 |
+|---|---|---|
+| ¿Qué pasó hoy? / ¿qué se dice de esta coin? | ✅ | ❌ sin captura de noticias (v2) |
 
 > **Decisión (04/09): no hay "régimen" en v3.** El diseño de v2 tenía un régimen
 > que clasificaba señales (MVRV, Mayer, dominancia, fear&greed, funding) en una
