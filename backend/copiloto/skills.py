@@ -226,7 +226,16 @@ CÓMO PRESENTAR LOS NÚMEROS (clave):
     · percentil bajo (<30): "en la zona baja de su historia"
   Ej: en vez de "volatilidad 46.99, percentil 34.3" → "la volatilidad está más
   bien baja (percentil 34)".
-- Elegí los 3-4 números que importan para la pregunta; no los vuelques todos.
+- FUNDING: no lo dejes crudo. El SIGNO dice quién paga: positivo = los largos
+  pagan a los cortos (presión compradora apalancada); negativo = al revés. El
+  PERCENTIL dice qué tan extremo es contra su historia (percentil 0 = en el piso,
+  100 = en el techo). Ej: "el funding está apenas negativo y en el piso de su
+  historia (percentil 0): los cortos pagan, sin presión compradora apalancada".
+  NO infieras qué va a pasar con el precio a partir del funding.
+- MAX-PAIN: traducí la distancia al spot. Ej: "el max-pain de opciones está en
+  75.000, un 8% por debajo del precio actual". No digas que el precio "va a ir"
+  ahí —es dónde se concentra la exposición, no un pronóstico—.
+- Elegí los números que importan para la pregunta; no los vuelques todos.
 - Redondeá: "≈2.700 millones", no "2693665406311.65".
 
 Reglas de honestidad (obligatorias):
