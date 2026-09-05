@@ -30,6 +30,7 @@ from fastapi.responses import JSONResponse
 
 from backend.app import axiom
 from backend.api.rutas import capacidades, sistema, configuracion
+from backend.copiloto.rutas import copiloto
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ app = FastAPI(
 app.include_router(capacidades)
 app.include_router(sistema)
 app.include_router(configuracion)
+app.include_router(copiloto)
 
 
 @app.get("/api/salud", include_in_schema=False)

@@ -27,6 +27,7 @@ from backend.nucleo import planificador
 from backend.nucleo.registro import registro
 from backend.nucleo.capacidades import registro as capacidades
 from backend.nucleo.motor import Motor
+from backend.llm.cliente import LLM
 from backend.dominio import par as dominio_par
 from backend.dominio import mercado as dominio_mercado
 from backend.dominio import btc_intradia as dominio_intradia
@@ -59,6 +60,7 @@ class Axiom:
     def __init__(self):
         self.pool: asyncpg.Pool | None = None
         self.fuentes = ClienteFuentes()
+        self.llm = LLM()
         self.motor: Motor | None = None
 
     async def arrancar(self, con_planificador: bool = True) -> None:
@@ -101,6 +103,9 @@ class Axiom:
             logger.warning("[axiom] fuentes SIN CLAVE: %s",
                            ", ".join(cfg.claves_faltantes))
         await self.fuentes.abrir()
+        await self.llm.abrir()
+        if not self.llm.disponible:
+            logger.warning("[axiom] LLM SIN PROVEEDOR: el copiloto no responderá")
 
         self._suscribir()
 
@@ -123,6 +128,7 @@ class Axiom:
     async def detener(self) -> None:
         planificador.detener()
         await self.fuentes.cerrar()
+        await self.llm.cerrar()
         if self.pool:
             await self.pool.close()
         logger.info("[axiom] detenido")
