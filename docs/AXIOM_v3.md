@@ -1000,14 +1000,41 @@ edita a mano.
 
 ---
 
-## 10. El copiloto (diseño — no implementado en v3)
+## 10. El copiloto
 
-> **Estado (04/09):** esta sección es **diseño**, no implementación. El copiloto
-> de skills se construyó y validó en v2 (experimental, `/api/experimental/
-> copiloto-skills`) pero **no está portado a v3**. Acá se define cómo debe ser en
-> v3 — y se escribe *antes* de codearlo a propósito, porque la arquitectura del
-> copiloto condiciona cómo se declaran widgets, vistas y capacidades. Diseñar
-> primero es evitar construir capacidades y una UI contra un supuesto.
+> **Estado (05/09):** el **escalón 1 está VIVO** (ver §10.7). Se conversa con
+> AXIOM: `POST /api/copiloto` clasifica, ejecuta capacidades por el motor y
+> redacta con datos medidos. Los escalones 2-5 (widgets declarados, frontend,
+> operar vistas, crear) siguen siendo diseño. El resto de esta sección mezcla lo
+> implementado (marcado ✅) con el diseño de lo que falta.
+
+### 10.0 El cliente de LLM — multi-proveedor, multi-nivel (✅ 05/09)
+
+`backend/llm/cliente.py`. **Un** cliente que habla formato **OpenAI-compatible**
+—el estándar que hablan Gemini (endpoint `/openai`), Groq, OpenRouter—. Los
+proveedores y los modelos son **configuración del `.env`**, no código.
+
+> **La lección de v2, recuperada.** v2 ya había concluido que la robustez no
+> viene de "elegir el modelo perfecto" sino de **desacoplarse del proveedor**:
+> cualquier modelo se satura (429), se cae (503) o lo retiran (404). Lo vivimos
+> en carne propia el 05/09 —`gemini-2.0-flash` retirado, `3.6-flash` con cuota
+> agotada, `flash-latest` con 503, todos el mismo día—. La solución no fue un
+> modelo, fue esta arquitectura.
+
+Dos dimensiones, resueltas juntas:
+- **Nivel de tarea.** El copiloto pide un **nivel**, no un modelo: `rapido`
+  (clasificar, redactar) o `capaz` (crear estrategias, razonamiento
+  estructurado). Cada nivel es una cadena de `proveedor:modelo`.
+- **Disponibilidad.** La cadena de un nivel **cruza proveedores**: si `gemini:…`
+  cae, salta a `groq:…` transparentemente. Nunca sin copiloto.
+
+Config actual (en `.env`): proveedores `gemini,groq`;
+`rapido = gemini:gemini-flash-lite-latest, groq:openai/gpt-oss-20b, …`;
+`capaz = groq:openai/gpt-oss-120b, gemini:gemini-3.7-flash, …`. Agregar
+OpenRouter (o cualquiera OpenAI-compat) es una línea más, sin tocar código.
+
+Verificado: `rapido` clasifica con el lite de Gemini; `capaz` razona con
+gpt-oss-120b de Groq; el fallback salta ante 404/429/503.
 
 ### 10.1 Por qué el copiloto es el centro, y qué significa
 
@@ -1167,13 +1194,17 @@ distingue es que el copiloto puede **operarla en curso** — cambiar su estado s
 recrearla. Su `acepta` es el vocabulario de esa operación: el copiloto traduce
 "agregá una EMA de 21" a un cambio sobre `indicadores`, y el frontend lo aplica.
 
-### 10.7 Orden de construcción (cuando se implemente)
+### 10.7 Orden de construcción
 
-No ahora — esto es la ruta cuando se codee, en orden de dependencia:
+En orden de dependencia. El escalón 1 está hecho (05/09):
 
-1. **Portar el copiloto de skills a v3** — las cuatro etapas contra el motor de
-   capacidades. Empieza texto→texto (Modelo respuesta), como v2 pero sobre el
-   registro de v3.
+1. ✅ **Copiloto de skills en v3** — las cuatro etapas contra el motor
+   (`backend/copiloto/`). Clasificar (LLM, nivel rápido) → resolver (`resolver_coin`)
+   → ejecutar capacidades en paralelo por el motor → redactar (LLM, nivel rápido).
+   Router `POST /api/copiloto`. Texto→texto (Modelo respuesta). **Verificado:**
+   estado de BTC, info de coin y dominancia redactan con datos reales, percentiles
+   traducidos a lectura, sin predecir. Intenciones mapeadas hoy: `estado_btc`,
+   `posicionamiento_btc`, `dominancia`, `info_coin`, `historia_coin`.
 2. **Catálogo de widgets declarados** — declarar `consume`/`contextos`/
    `densidades`/`acepta` para las capacidades que ya existen (`btc_estado`,
    `coin_*`, `mercado_dominancia`).
@@ -1193,14 +1224,16 @@ van al final —con más base debajo—.
 
 ## 11. Qué sigue
 
-**El copiloto y el frontend (el centro de v3 — diseñado en §10, sin implementar):**
-- **Portar el copiloto de skills a v3** — las cuatro etapas contra el motor de
-  capacidades. Es lo que convierte a AXIOM de "17 capacidades vía curl" en algo
-  con lo que se conversa. Diseño en §10.7, orden de construcción incluido.
+**El copiloto y el frontend (el centro de v3 — §10; escalón 1 ✅, faltan 2-5):**
+- ✅ **Copiloto de skills** (05/09) — se conversa con AXIOM por `POST /api/copiloto`.
+  Cliente LLM multi-proveedor/multi-nivel (Gemini + Groq). Falta lo demás.
 - **Catálogo de widgets declarados + frontend mínimo** — declarar
   `consume`/`contextos`/`densidades`/`acepta` para las capacidades que ya existen,
   y una UI centrada en la conversación que los monte. Página en blanco hoy; el
-  server ya sirve `frontend/` por StaticFiles.
+  server ya sirve `frontend/` por StaticFiles. Es el escalón 2-3.
+- **Operar vistas y crear** (escalones 4-5) — el Modelo acción y que el copiloto
+  escriba declaraciones (indicadores, estrategias). "Crear" usa el nivel `capaz`
+  del LLM (Groq gpt-oss-120b), ya disponible y esperando.
 
 **Investigación (la tesis de v3):**
 - **Rango diario explotable por par** — descubrir la regla de rango inherente a
