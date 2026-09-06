@@ -626,6 +626,24 @@ construido y corriendo, medido contra el server.**
   que cambian** (no paquetes completos, para no pisar correcciones locales); scp
   desde `C:\Users\Migueh\Downloads`.
 
+**Enrutamiento de dominios (switch v2→v3, 05/09).** La cadena externa es
+Cloudflare Tunnel → Caddy (puertos internos) → uvicorn:
+- **`axiom.decentralia.com.ar` → v3** (túnel → Caddy `:82` → `127.0.0.1:8003`).
+- **`v2.decentralia.com.ar` → v2** (túnel → Caddy `:81` → `127.0.0.1:8002`),
+  archivada; incluye sus docs MkDocs.
+- **Trampa a recordar:** el servicio `cloudflared` usa
+  **`/etc/cloudflared/config.yml`** (lo dice su `ExecStart`), NO el de
+  `~/.cloudflared/`. Editar el de `/etc` y `systemctl restart cloudflared`. El
+  DNS del subdominio se crea con `cloudflared tunnel route dns <tunnel-id> v2…`.
+- Caddy: `/etc/caddy/Caddyfile`, bloques `:81` (v2) y `:82` (v3). Validar con
+  `caddy validate` antes de `systemctl reload caddy`.
+
+**Frontend (05/09).** `frontend/` en la raíz del repo (`index.html`, `style.css`,
+`app.js` — Vanilla JS, sin build). El server lo sirve por `StaticFiles` montado
+en `/` sólo si la carpeta existe (`servidor.py`). *Bug corregido 05/09:* `_RAIZ`
+tenía un `.parent` de más y apuntaba fuera del repo, por lo que el mount nunca se
+activaba — se notó recién al haber por primera vez un frontend que servir.
+
 **Fuentes integradas (captura, 02/09):** CoinGecko (`universo` — coins), MEXC +
 CoinEx (`pares` — operables), Binance (`bitcoin` — velas y series de BTC),
 Deribit (`funding` + `opciones`), CoinGecko `/global` (dominancia). **Sin integrar:** noticias, desbloqueos/eventos
@@ -1196,7 +1214,8 @@ recrearla. Su `acepta` es el vocabulario de esa operación: el copiloto traduce
 
 ### 10.7 Orden de construcción
 
-En orden de dependencia. El escalón 1 está hecho (05/09):
+En orden de dependencia. Escalones 1 y 3 hechos (05/09); el 2 (catálogo formal)
+queda pendiente por decisión de enfoque:
 
 1. ✅ **Copiloto de skills en v3** — las cuatro etapas contra el motor
    (`backend/copiloto/`). Clasificar (LLM, nivel rápido) → resolver (`resolver_coin`)
@@ -1205,20 +1224,33 @@ En orden de dependencia. El escalón 1 está hecho (05/09):
    estado de BTC, info de coin y dominancia redactan con datos reales, percentiles
    traducidos a lectura, sin predecir. Intenciones mapeadas hoy: `estado_btc`,
    `posicionamiento_btc`, `dominancia`, `info_coin`, `historia_coin`.
-2. **Catálogo de widgets declarados** — declarar `consume`/`contextos`/
-   `densidades`/`acepta` para las capacidades que ya existen (`btc_estado`,
-   `coin_*`, `mercado_dominancia`).
-3. **Frontend mínimo centrado en conversación** — el copiloto al centro, montando
-   widgets del catálogo (Modelo respuesta). Las secciones navegables comparten
-   esos widgets.
+2. 🟡 **Catálogo de widgets declarados** — declarar `consume`/`contextos`/
+   `densidades`/`acepta` en backend. **Pendiente a propósito** (enfoque B): en vez
+   de declarar en abstracto, el frontend (escalón 3) se hizo primero con renderers
+   hardcodeados, y de lo que necesitan emerge qué formalizar. Los renderers de
+   `app.js` (uno por capacidad) son la especificación provisoria; falta subirla al
+   backend como declaración.
+3. ✅ **Frontend mínimo centrado en conversación** (05/09) — `frontend/`, Vanilla
+   JS sin build, servido por el propio backend. El copiloto al centro, montando un
+   widget por capacidad que responde. Voz en serif, ámbar-latón, epistémica
+   ("Límites de esta lectura") colapsable con ícono. Textarea estilo chat. Tono del
+   redactor recalibrado a profesional. En `axiom.decentralia.com.ar`.
 4. **Modelo acción** — navegar y operar vistas. Acá entran los espacios de
    trabajo (el gráfico) y el `acepta`.
 5. **Crear** — el copiloto escribe declaraciones (indicadores, luego estrategias).
-   Lo último, porque "crear" que persiste y opera es lo de mayor riesgo.
+   Lo último, porque "crear" que persiste y opera es lo de mayor riesgo. Usa el
+   nivel `capaz` del LLM (Groq gpt-oss-120b), ya disponible.
 
-Cada escalón es usable solo: con (1)+(2)+(3) ya se conversa con el mercado y se
-ven las respuestas. (4) y (5) son lo que ninguna otra plataforma tiene, y por eso
-van al final —con más base debajo—.
+Con (1)+(3) ya se conversa con el mercado y se ven las respuestas. Formalizar (2)
+y luego (4)+(5) es lo que sigue.
+
+> **Pendiente de diseño — conversaciones múltiples.** La UI hoy es una sola
+> conversación sin persistencia. Un sistema de varios chats con historial (como
+> los asistentes conversacionales) es un frente aparte: exige decidir dónde viven
+> los chats (navegador vs. tabla en backend), si el copiloto usa el historial como
+> **contexto** (hoy cada mensaje es independiente, sin memoria) y cómo se relaciona
+> con el "objeto en foco" (§10.4). No se codeó a propósito; se analiza cuando se
+> encare, ligado a cómo el copiloto usa el contexto conversacional.
 
 ---
 
