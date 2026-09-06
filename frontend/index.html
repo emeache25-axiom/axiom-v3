@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AXIOM</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="cabecera">
+    <div class="marca">AXIOM</div>
+    <div class="lema">analiza · no predice</div>
+  </header>
+
+  <main class="conversacion" id="conversacion">
+    <div class="bienvenida" id="bienvenida">
+      <p class="saludo">Preguntá por el estado del mercado.</p>
+      <p class="ejemplos">
+        Probá: <button class="chip" data-q="¿cómo está bitcoin?">¿cómo está bitcoin?</button>
+        <button class="chip" data-q="contame de ethereum">contame de ethereum</button>
+        <button class="chip" data-q="¿cómo está la dominancia del mercado?">dominancia del mercado</button>
+      </p>
+    </div>
+  </main>
+
+  <form class="entrada" id="entrada" autocomplete="off">
+    <textarea id="mensaje" name="mensaje" rows="1"
+              placeholder="Preguntá algo…" aria-label="Tu pregunta"></textarea>
+    <button type="submit" id="enviar" aria-label="Preguntar">Preguntar</button>
+  </form>
+
+  <script src="/app.js"></script>
+</body>
+</html>

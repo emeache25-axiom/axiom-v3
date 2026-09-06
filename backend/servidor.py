@@ -34,7 +34,7 @@ from backend.copiloto.rutas import copiloto
 
 logger = logging.getLogger(__name__)
 
-_RAIZ = Path(__file__).resolve().parent.parent.parent
+_RAIZ = Path(__file__).resolve().parent.parent
 _FRONTEND = _RAIZ / "frontend"
 
 
