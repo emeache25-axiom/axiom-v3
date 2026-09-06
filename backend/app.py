@@ -35,7 +35,9 @@ from backend.dominio import posicionamiento as dominio_posicionamiento
 from backend.dominio import coin as dominio_coin
 from backend.dominio import estado_mercado as dominio_estado_mercado
 from backend.dominio import sentimiento as dominio_sentimiento
-from backend.captura import universo, pares, bitcoin, opciones, funding
+from backend.dominio import onchain as dominio_onchain
+from backend.captura import universo
+from backend.captura import onchain as captura_onchain, pares, bitcoin, opciones, funding
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +83,7 @@ class Axiom:
         dominio_coin.declarar()
         dominio_estado_mercado.declarar()
         dominio_sentimiento.declarar()
+        dominio_onchain.declarar()
         problemas = capacidades.verificar()
         if problemas:
             raise RuntimeError(
@@ -308,7 +311,13 @@ class Axiom:
         except Exception:
             logger.exception("[app] capturar_sectores falló; sigo")
             sect = {"guardado": False}
-        return {"coins": coins, "global": glob, "sectores": sect}
+        # On-chain (mvrv, nupl): actualización diaria. No tumba el refresco.
+        try:
+            onc = await captura_onchain.actualizar(self.pool, self.fuentes)
+        except Exception:
+            logger.exception("[app] onchain.actualizar falló; sigo")
+            onc = {"actualizado": False}
+        return {"coins": coins, "global": glob, "sectores": sect, "onchain": onc}
 
     async def _inventariar_coins(self):
         return await universo.inventariar(self.pool, self.fuentes)

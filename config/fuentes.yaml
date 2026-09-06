@@ -149,6 +149,56 @@ fuentes:
         last_updated:                             fuente_updated_at
 
   # ═══════════════════════════════════════════════════════════════════════
+  # BGeometrics / bitcoin-data.com — métricas ON-CHAIN de BTC.
+  #
+  # API oficial, ABIERTA (sin key en el free tier), servida desde su propio
+  # nodo Bitcoin. Lo contrario del scraping frágil de v2 (que "robaba" los
+  # endpoints internos de CoinMarketCap simulando un browser): fuente
+  # documentada, metodología pública (MVRV-Z de Mahmudov y Puell), dato fechado.
+  #
+  # LÍMITES del free tier: 15 requests/día, 8/hora, y sólo los ÚLTIMOS 4 AÑOS
+  # (ventana móvil). Por eso guardamos la serie en nuestra tabla. On-chain es
+  # data diaria de ciclo largo: una captura por día por métrica alcanza.
+  bitcoin-data:
+    tipo: rest
+    base_url: https://bitcoin-data.com/v1
+    # sin clave_en: el free tier no requiere token.
+
+    limites:
+      llamadas_por_minuto: 6
+      reintentos: 3
+      respeta_retry_after: true
+      espera_base_s: 5
+      espera_maxima_s: 120
+      timeout_s: 30
+
+    ofrece:    [onchain, mvrv, nupl, sopr, puell]
+    no_ofrece: [precio_intradia, libro, velas]
+
+    endpoints:
+      mvrv_zscore:
+        path: /mvrv-zscore
+        devuelve: coleccion
+        params_admite: [startday, endday]
+        descripcion: >
+          MVRV Z-Score: valor de mercado contra valor realizado (costo base),
+          normalizado. Alto = caro respecto del costo base; bajo = barato.
+      nupl:
+        path: /nupl
+        devuelve: coleccion
+        params_admite: [startday, endday]
+        descripcion: >
+          NUPL: ganancia/pérdida no realizada del mercado como fracción.
+
+    mapeos:
+      mvrv_zscore:
+        d:          fecha
+        mvrvZscore: valor
+      nupl:
+        d:    fecha
+        nupl: valor
+
+  # ═══════════════════════════════════════════════════════════════════════
   # EXCHANGES — vía ccxt
   #
   # Agregar uno es agregar un bloque acá. Sin decodificador, sin código, sin
