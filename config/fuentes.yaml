@@ -229,6 +229,29 @@ fuentes:
         etfFlow: valor
 
   # ═══════════════════════════════════════════════════════════════════════
+  # Sharpe (sharpe.ai) — correlación de BTC con mercados tradicionales.
+  # API pública abierta (sin key). AGREGADOR que recalcula (Pearson estándar
+  # sobre precios de terceros), no fuente primaria. Sólo se usa lo medido
+  # (correlación); sus señales predictivas/sociales se descartan por principio.
+  sharpe:
+    tipo: rest
+    base_url: https://www.sharpe.ai/api
+    limites:
+      llamadas_por_minuto: 10
+      reintentos: 3
+      respeta_retry_after: true
+      espera_base_s: 3
+      espera_maxima_s: 60
+      timeout_s: 30
+    ofrece:    [correlacion_tradfi]
+    no_ofrece: [precio, velas, on_chain, prediccion]
+    endpoints:
+      correlacion_historia:
+        path: /correlation/history
+        devuelve: objeto
+        params_admite: [asset1, asset2, period]
+
+  # ═══════════════════════════════════════════════════════════════════════
   # EXCHANGES — vía ccxt
   #
   # Agregar uno es agregar un bloque acá. Sin decodificador, sin código, sin
