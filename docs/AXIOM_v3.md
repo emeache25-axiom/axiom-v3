@@ -184,7 +184,7 @@ El fundacional (16/08) desglosó ~50 preguntas por las cuatro capas. Aquel mapa
 describía en buena parte lo que **v2** respondía. Abajo el mismo mapa con los
 estados **corregidos a lo que v3 responde hoy**, medido contra el server: v3 tiene
 6 módulos de dominio (`btc_intradia`, `mercado`, `par`, `posicionamiento`, `coin`,
-`estado_mercado`, `sentimiento`, `onchain`), 23 capacidades y una operación (`reunir`). Varias capacidades
+`estado_mercado`, `sentimiento`, `onchain`, `correlacion`), 24 capacidades y una operación (`reunir`). Varias capacidades
 de sector/noticias/on-chain de v2 aún **no se portaron**.
 
 Marcas: ✅ v3 hoy · 🟡 el dato existe, falta exponerlo · ⏳ falta historia (sólo
@@ -207,7 +207,7 @@ DE SEÑAL, que es la distinción que sí se sostiene.*
 | **Mercado** — reparto de capital (dominancia) | 🟡 | ✅ **`mercado_dominancia`** |
 | **Mercado** — sentimiento | 🟡 | ✅ **`mercado_sentimiento`** (dominancia de stables, medida — no un índice opaco) |
 | **Mercado** — on-chain | 🟡 | ✅ **5 métricas** (bitcoin-data.com): `mercado_mvrv`, `mercado_nupl`, `mercado_sopr`, `mercado_puell`, `mercado_etf_flujo`. Pendiente: LTH vs STH, flujos de exchange |
-| **Mercado** — cripto vs. tradicionales | ❌ | ❌ fuente nueva |
+| **Mercado** — cripto vs. tradicionales | ❌ | ✅ **`mercado_correlacion_tradfi`** (Sharpe: correlación BTC vs S&P/oro, ventana 30/60/90) |
 | **Universo** — ecosistema / ¿cambió vs. ayer? | ⏳ | ⏳ historia acumulando |
 | **Universo** — régimen del universo operable | ✅ | ❌ necesita propiedades de conjunto (v2) |
 | **Universo** — capital por sector | ✅ | ❌ falta `sector` poblado + operación agregar |
@@ -656,14 +656,15 @@ sin superposición:
 | **ccxt · Deribit** | funding + opciones de BTC | mercado (derivados) |
 | **bitcoin-data.com** | on-chain de ciclo: MVRV-Z, NUPL, SOPR, Puell, ETF flow | cadena (calculada) |
 | **Coin Metrics Community** | *(carta guardada)* network data: direcciones, flujos de exchange | cadena (network) |
+| **Sharpe** | correlación BTC vs tradicionales (S&P 500, oro) | mercado (agregador) |
 | **Gemini, Groq** | el copiloto (clasificar/redactar) | LLM |
 
 *ccxt no da on-chain y on-chain no da mercado: son ejes distintos, sin hueco ni
 duplicación.* **Sin integrar aún:** noticias, desbloqueos/eventos temporales,
-cripto vs. tradicionales (Sharpe podría resolverlo — correlación BTC/SP500/oro).
+cripto vs. tradicionales (✅ resuelto con Sharpe).
 
 **Módulos de dominio vivos (7):** `btc_intradia`, `mercado`, `par`,
-`posicionamiento`, `coin`, `estado_mercado`, `sentimiento`, `onchain`. **Routers
+`posicionamiento`, `coin`, `estado_mercado`, `sentimiento`, `onchain`, `correlacion`. **Routers
 montados (4):** `capacidades`, `sistema`, `configuracion`, `copiloto`.
 
 ### 6.2 El giro de AGENTES a SKILLS
@@ -691,12 +692,12 @@ contexto. LLM en producción: **Gemini Flash**.
 > v3** —no hay archivo ni router montado en `app.py`/`rutas.py`—. No fue una
 > limpieza ejecutada: nunca se portaron desde v2.
 
-### 6.3 Las 23 capacidades declaradas
+### 6.3 Las 24 capacidades declaradas
 
-Fuente autoritativa: `GET /api/capacidades` → **total: 23** (06/09). Una sola
+Fuente autoritativa: `GET /api/capacidades` → **total: 24** (06/09). Una sola
 operación implementada: **`reunir`**.
 
-**Mercado / BTC-referencia (17):**
+**Mercado / BTC-referencia (18):**
 
 | Capacidad | Tipo | Mide (resumen) |
 |---|---|---|
@@ -717,6 +718,7 @@ operación implementada: **`reunir`**.
 | `mercado_sopr` | simple | SOPR (flujo realizado: monedas movidas en ganancia/pérdida) + percentil |
 | `mercado_puell` | simple | Puell Multiple (ingresos de mineros vs. media anual) + percentil |
 | `mercado_etf_flujo` | simple | flujo neto de ETF de BTC (lectura de flujo: neto de ventana + racha) |
+| `mercado_correlacion_tradfi` | simple | correlación BTC vs S&P 500 y oro (risk-on/refugio/desacoplado) + percentil |
 
 **Par (3):** `oscilacion`, `rango_tipico`, `repetibilidad` — las tres **masivas**
 (todo el universo de pares por evento). Son "la mitad medida" de la ecuación de
@@ -929,6 +931,29 @@ dominancia, sentimiento miran los mercados).
   Metrics Community** (`FlowInEx`/`FlowOutEx`, confirmados en el free tier). Sería
   la primera métrica de esa fuente, incorporándola como segunda fuente on-chain.
   Dimensión nueva: presión de venta potencial vs. acumulación a cold storage.
+
+### 6.10 Correlación con tradicionales (construido esta sesión)
+
+Cierra "cripto vs. tradicionales". Dice qué **tipo** de activo está siendo BTC:
+alta correlación con el S&P = risk-on; alta con el oro = refugio; baja con ambos
+= desacoplado (clase propia).
+
+- **Fuente `sharpe.ai`** — API pública abierta (sin key). Es un **agregador que
+  recalcula** (Pearson estándar sobre precios de terceros), no fuente primaria;
+  para correlación es aceptable (matemática pública, verificable), y la capacidad
+  lo declara. Sólo se usa lo medido; sus señales predictivas (`price-prediction`)
+  y sociales (`mindshare`) se descartan por principio — AXIOM no predice ni
+  consume índices opacos.
+- **Tabla `correlacion_diaria`** (mig 014), genérica por par y ventana. Guarda las
+  tres ventanas rolling (30/60/90 obs) de dos pares (btc-sp500, btc-gold), ~2 años
+  (desde 2024-01). Se guarda la serie para el percentil.
+- **`mercado_correlacion_tradfi`** — ventana configurable (30/60/90, default 90).
+  Da la correlación con S&P y oro, cada una con su percentil histórico y la
+  lectura de régimen. Verificado (06/09): **BTC-S&P pct 26 (bajo), BTC-oro pct
+  99.7 (techo)** — BTC actuando como refugio, no como activo de riesgo; las dos
+  ventanas coinciden.
+- Declara: correlación no es causalidad ni predicción, es móvil, y la calcula
+  Sharpe (no AXIOM).
 
 ---
 
