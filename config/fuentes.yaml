@@ -189,6 +189,27 @@ fuentes:
         params_admite: [startday, endday]
         descripcion: >
           NUPL: ganancia/pérdida no realizada del mercado como fracción.
+      sopr:
+        path: /sopr
+        devuelve: coleccion
+        params_admite: [startday, endday]
+        descripcion: >
+          SOPR: de las monedas que se movieron hoy, razón entre su valor al
+          gastarse y al adquirirse. >1 se mueven en ganancia, <1 en pérdida.
+      puell_multiple:
+        path: /puell-multiple
+        devuelve: coleccion
+        params_admite: [startday, endday]
+        descripcion: >
+          Puell Multiple: ingresos diarios de los mineros contra su media anual.
+          Alto = presión de venta potencial; bajo = capitulación de mineros.
+      etf_flow:
+        path: /etf-flow-btc
+        devuelve: coleccion
+        params_admite: [startday, endday]
+        descripcion: >
+          Flujo neto diario de los ETF de BTC al contado, en BTC con signo
+          (+ entradas, - salidas). Rezago de reporte 1-2 días.
 
     mapeos:
       mvrv_zscore:
@@ -197,6 +218,15 @@ fuentes:
       nupl:
         d:    fecha
         nupl: valor
+      sopr:
+        d:    fecha
+        sopr: valor
+      puell_multiple:
+        d:             fecha
+        puellMultiple: valor
+      etf_flow:
+        d:       fecha
+        etfFlow: valor
 
   # ═══════════════════════════════════════════════════════════════════════
   # EXCHANGES — vía ccxt

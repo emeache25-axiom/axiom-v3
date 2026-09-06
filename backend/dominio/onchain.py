@@ -77,6 +77,66 @@ async def _nupl(contexto, **_) -> dict:
     return await _leer_metrica(contexto["pool"], "nupl")
 
 
+async def _sopr(contexto, **_) -> dict:
+    return await _leer_metrica(contexto["pool"], "sopr")
+
+
+async def _puell(contexto, **_) -> dict:
+    return await _leer_metrica(contexto["pool"], "puell_multiple")
+
+
+async def _etf_flujo(contexto, dias=7, **_) -> dict:
+    """
+    ETF flow es un FLUJO con signo, no un nivel: la lectura natural no es su
+    percentil sino el neto acumulado reciente y la racha. Positivo = los ETF
+    acumulan (entradas); negativo = distribuyen (salidas).
+    """
+    pool = contexto["pool"]
+    async with pool.acquire() as conn:
+        filas = await conn.fetch(
+            """
+            SELECT fecha, valor FROM onchain_diaria
+            WHERE metrica = 'etf_flow' AND valor IS NOT NULL
+            ORDER BY fecha DESC LIMIT $1
+            """,
+            dias)
+        # Para la racha, traigo un poco más de historia.
+        recientes = await conn.fetch(
+            """
+            SELECT valor FROM onchain_diaria
+            WHERE metrica = 'etf_flow' AND valor IS NOT NULL
+            ORDER BY fecha DESC LIMIT 30
+            """)
+
+    if not filas:
+        return {"valor": None, "dias": 0}
+
+    ultimo_fecha = filas[0]["fecha"]
+    ultimo = float(filas[0]["valor"])
+    neto = round(sum(float(f["valor"]) for f in filas), 2)
+
+    # Racha: días consecutivos (desde el más reciente) con el mismo signo.
+    vals = [float(r["valor"]) for r in recientes]  # desc: más nuevo primero
+    racha = 0
+    if vals:
+        signo = 1 if vals[0] > 0 else (-1 if vals[0] < 0 else 0)
+        if signo != 0:
+            for v in vals:
+                if (v > 0 and signo > 0) or (v < 0 and signo < 0):
+                    racha += 1
+                else:
+                    break
+
+    return {
+        "ultimo_dia": round(ultimo, 2),
+        "neto_ventana": neto,            # BTC netos entrados(+)/salidos(-) en `dias`
+        "dias_ventana": len(filas),
+        "racha_dias": racha,             # días consecutivos del mismo signo
+        "racha_signo": "entradas" if (vals and vals[0] > 0) else ("salidas" if (vals and vals[0] < 0) else "neutro"),
+        "_fuente_hasta": ultimo_fecha,
+    }
+
+
 def declarar() -> None:
     """Se llama una vez al arrancar."""
 
@@ -134,4 +194,71 @@ def declarar() -> None:
             metodo="valor actual de onchain_diaria; percentil como % de días de "
                    "la historia guardada por debajo del valor actual")))
 
-    logger.info("[capacidades] mercado: mvrv, nupl (on-chain, valuación de ciclo)")
+    registro.registrar(Simple(
+        nombre="mercado_sopr", objeto=Objeto.MERCADO,
+        funcion=_sopr, alcance=Alcance.INDIVIDUAL,
+        parametros={},
+        descripcion="SOPR de BTC: de las monedas que se movieron, si se mueven "
+                    "en ganancia o pérdida, y su posición en su historia",
+        propiedad=Propiedad(unidad="ratio", direccion=Direccion.CONTEXTUAL),
+        vigencia=Vigencia(evento="refresco_de_coins"),
+        epistemico=Epistemico(
+            mide="el SOPR actual —razón entre el valor de las monedas al gastarse "
+                 "y al adquirirse, para las que se movieron ese día— y su "
+                 "percentil contra la historia guardada",
+            infiere="que SOPR > 1 describe monedas moviéndose en ganancia (los que "
+                    "venden están en verde), < 1 en pérdida. Es flujo REALIZADO "
+                    "(lo que se movió), más de corto plazo que MVRV/NUPL",
+            no_sabe="NO predice el precio. Viene CALCULADO por bitcoin-data.com "
+                    "desde su nodo —dato de terceros—. El percentil es contra la "
+                    "historia guardada (~4 años de origen)",
+            fuente="bitcoin-data.com (BGeometrics), SOPR calculado desde su nodo",
+            metodo="valor actual de onchain_diaria; percentil como % de días por "
+                   "debajo del valor actual")))
+
+    registro.registrar(Simple(
+        nombre="mercado_puell", objeto=Objeto.MERCADO,
+        funcion=_puell, alcance=Alcance.INDIVIDUAL,
+        parametros={},
+        descripcion="Puell Multiple de BTC: ingresos de mineros contra su media "
+                    "anual, y su posición en su historia",
+        propiedad=Propiedad(unidad="ratio", direccion=Direccion.CONTEXTUAL),
+        vigencia=Vigencia(evento="refresco_de_coins"),
+        epistemico=Epistemico(
+            mide="el Puell Multiple actual —ingresos diarios de los mineros "
+                 "divididos por su media móvil anual— y su percentil histórico",
+            infiere="que un Puell alto describe mineros con ingresos muy por "
+                    "encima de lo normal (presión de venta potencial de la "
+                    "oferta nueva), y bajo, capitulación de mineros "
+                    "(históricamente zonas de piso de ciclo)",
+            no_sabe="NO predice el precio. Mira sólo a los MINEROS (la oferta "
+                    "nueva), no a los tenedores. Viene calculado por "
+                    "bitcoin-data.com —dato de terceros—. Métrica de ciclo largo",
+            fuente="bitcoin-data.com (BGeometrics), Puell Multiple desde su nodo",
+            metodo="valor actual de onchain_diaria; percentil como % de días por "
+                   "debajo del valor actual")))
+
+    registro.registrar(Simple(
+        nombre="mercado_etf_flujo", objeto=Objeto.MERCADO,
+        funcion=_etf_flujo, alcance=Alcance.INDIVIDUAL,
+        parametros={"dias": {"default": 7, "min": 1, "max": 90}},
+        descripcion="Flujo neto de los ETF de BTC al contado: cuánto BTC "
+                    "entró/salió, el neto de la ventana y la racha",
+        propiedad=Propiedad(unidad="BTC", direccion=Direccion.CONTEXTUAL),
+        vigencia=Vigencia(evento="refresco_de_coins"),
+        epistemico=Epistemico(
+            mide="el flujo neto diario de los ETF de BTC al contado (en BTC, con "
+                 "signo: + entradas, − salidas), el neto acumulado de la ventana "
+                 "y la racha de días consecutivos del mismo signo",
+            infiere="que entradas netas sostenidas describen demanda institucional "
+                    "acumulando, y salidas, distribución. Es FLUJO, se lee por "
+                    "neto y racha —no por percentil, que no aplica a un flujo—",
+            no_sabe="NO predice el precio. Tiene REZAGO de reporte de 1-2 días "
+                    "(no es tiempo real). Es la señal menos on-chain del grupo: "
+                    "es movimiento de vehículos financieros tradicionales, no de "
+                    "la cadena. Viene calculado por bitcoin-data.com —terceros—",
+            fuente="bitcoin-data.com (BGeometrics), flujo neto de ETF de BTC",
+            metodo="suma del flujo diario sobre la ventana; racha = días "
+                   "consecutivos del mismo signo desde el más reciente")))
+
+    logger.info("[capacidades] mercado: mvrv, nupl, sopr, puell, etf_flujo (on-chain)")

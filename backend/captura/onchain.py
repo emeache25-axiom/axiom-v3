@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 _METRICAS = {
     "mvrv_zscore": "mvrv_zscore",
     "nupl": "nupl",
+    "sopr": "sopr",
+    "puell_multiple": "puell_multiple",
+    "etf_flow": "etf_flow",
 }
 
 
