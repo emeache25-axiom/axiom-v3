@@ -572,7 +572,7 @@ problema que v3 vino a evitar.*
 Cada capacidad declara su `destila` (campos destinados al razonamiento, que ve el
 LLM) y su `presentacion` (campos para el widget del frontend, que **nunca** se
 mandan al LLM). Es lo que evita que el modelo consuma datasets crudos que no debe
-procesar (ver §6.2).
+procesar (ver §6.3).
 
 ### 5.5 La declaración de fuentes
 
@@ -610,7 +610,7 @@ agregar un bloque, cero código.** *(Aplica cuando exista la operación `clasifi
 
 ---
 
-## 6. Estado real de implementación (verificado 2026-09-02)
+## 6. Estado real de implementación (verificado 2026-09-06)
 
 Esta es la sección que a los cuatro documentos de diseño les faltaba: **qué está
 construido y corriendo, medido contra el server.**
@@ -644,30 +644,80 @@ en `/` sólo si la carpeta existe (`servidor.py`). *Bug corregido 05/09:* `_RAIZ
 tenía un `.parent` de más y apuntaba fuera del repo, por lo que el mount nunca se
 activaba — se notó recién al haber por primera vez un frontend que servir.
 
-**Mapa de fuentes (06/09).** Dos ejes: fuentes de **mercado** (qué pasa en los
-exchanges/agregadores) y de **cadena** (qué pasa on-chain). Cada una con su rol,
-sin superposición:
-
-| Fuente | Da | Eje |
-|---|---|---|
-| **CoinGecko** | precio/cap/ranking de coins (`universo`), dominancia (`/global`), sectores (`/coins/categories`) | mercado (agregador) |
-| **ccxt · MEXC, CoinEx** | pares operables: velas, libro, tickers, spread | mercado (operable) |
-| **ccxt · Binance** | velas y series de referencia de BTC | mercado (referencia) |
-| **ccxt · Deribit** | funding + opciones de BTC | mercado (derivados) |
-| **bitcoin-data.com** | on-chain de ciclo: MVRV-Z, NUPL, SOPR, Puell, ETF flow | cadena (calculada) |
-| **Coin Metrics Community** | *(carta guardada)* network data: direcciones, flujos de exchange | cadena (network) |
-| **Sharpe** | correlación BTC vs tradicionales (S&P 500, oro) | mercado (agregador) |
-| **Gemini, Groq** | el copiloto (clasificar/redactar) | LLM |
-
-*ccxt no da on-chain y on-chain no da mercado: son ejes distintos, sin hueco ni
-duplicación.* **Sin integrar aún:** noticias, desbloqueos/eventos temporales,
-cripto vs. tradicionales (✅ resuelto con Sharpe).
-
 **Módulos de dominio vivos (7):** `btc_intradia`, `mercado`, `par`,
 `posicionamiento`, `coin`, `estado_mercado`, `sentimiento`, `onchain`, `correlacion`. **Routers
 montados (4):** `capacidades`, `sistema`, `configuracion`, `copiloto`.
 
-### 6.2 El giro de AGENTES a SKILLS
+El catálogo de fuentes —qué da cada una, qué se descarta y por qué— está en §6.2.
+
+### 6.2 Catálogo de fuentes
+
+Qué provee cada fuente, qué de eso se usa, qué está disponible sin usar, y qué se
+descarta por principio. **Esta sección es la base del futuro "el copiloto agrega
+una métrica"** (§10): para que el copiloto sepa de dónde sacar algo, el sistema
+tiene que saber qué da cada fuente. Hoy vive como documento; cuando el copiloto lo
+consuma, se formaliza (el `ofrece:` de `fuentes.yaml` ya es su semilla legible por
+código).
+
+Dos ejes: **mercado** (qué pasa en exchanges/agregadores) y **cadena** (on-chain).
+ccxt no da on-chain y on-chain no da mercado — sin superposición ni hueco.
+
+**CoinGecko** · mercado (agregador) · REST con key (`COINGECKO_API_KEY`), 80/min.
+- *Usado:* precio/cap/ranking/variaciones de coins (`universo`), dominancia BTC/ETH
+  y cap total (`/global`), market cap de sectores (`/coins/categories`, hoy solo
+  `stablecoins`).
+- *Disponible sin usar:* categorías/sectores completos (757, se solapan — no sumar
+  sin resolver eso), fichas de coin (descripción, categorías, supply — el sync no
+  las trae aún).
+- *Nota:* el mapeo de `mercados` ya incluye supply circulante/total/máximo y ATH;
+  se capturan al crudo pero no todos van a tabla.
+
+**ccxt** · mercado · vía librería ccxt, sin decodificador propio.
+- *MEXC, CoinEx (operables):* velas diarias, libro, tickers, spread de pares.
+- *Binance (referencia):* velas diarias y horarias de BTC.
+- *Deribit (derivados):* funding del perpetuo inverso + opciones de BTC.
+- *Disponible sin usar:* velas intradía de cualquier par (on-demand), más exchanges
+  (ccxt cubre ~100 — agregar uno es un bloque en `fuentes.yaml`).
+- *No da:* nada on-chain.
+
+**bitcoin-data.com (BGeometrics)** · cadena (calculada) · REST **abierta sin key**.
+Límite real: **10 req/hora** (free). Historia: 4 años móviles (se guarda la serie
+porque la ventana se corre). Dato calculado desde su nodo — confiable, método
+público, pero de terceros (no medido por AXIOM).
+- *Usado:* MVRV Z-Score, NUPL, SOPR, Puell, ETF flow.
+- *Disponible sin usar:* LTH/STH (supply y MVRV/SOPR por cohorte — próximo frente),
+  realized price, reserve risk, RHODL, fear&greed propio, y ~340 métricas más.
+- *Descartado por redundancia:* MVRV simple (ya está el Z-Score), realized price
+  suelto (es el insumo de MVRV/NUPL).
+
+**Coin Metrics Community** · cadena (network) · REST **abierta sin key**, holgada
+(100/min). Free tier ACOTADO: sólo 31 métricas de BTC.
+- *Carta guardada (no usado aún):* flujos de exchange (`FlowInEx`/`FlowOutEx` —
+  presión de venta vs. acumulación, próximo frente), direcciones activas, supply en
+  exchanges, actividad de red.
+- *Verificado NO disponible en free:* cohortes LTH/STH, realized cap, NVT (son de
+  su producto pago).
+- *Rol futuro:* su catálogo consultable (`catalog-v2`) es candidato para el
+  copiloto-agrega-métrica (network data).
+
+**Sharpe (sharpe.ai)** · mercado (agregador) · REST **abierta sin key**, CORS.
+Agregador que recalcula sobre precios de terceros (no fuente primaria).
+- *Usado:* correlación BTC vs S&P 500 y oro (`/correlation/history`).
+- *Disponible sin usar (pasa el filtro — medido):* funding de **33 exchanges** de
+  perpetuos (hoy sólo tenés Deribit), arbitraje spot-perp y cross-exchange,
+  futures (OI, liquidaciones, long/short, basis, CVD), correlación entre cualquier
+  par de activos.
+- *Descartado por principio:* price-prediction (pronóstico — AXIOM no predice),
+  mindshare/sentiment social (opaco, como el Fear & Greed), web-traffic.
+
+**Gemini, Groq** · LLM · el copiloto. Ver §6.3/§10 (cliente multi-proveedor,
+multi-nivel).
+
+**Sin integrar (fuente nueva pendiente):** noticias, desbloqueos/eventos temporales
+(datos con fecha conocida de antemano — valiosos), sentimiento social (descartado
+por opaco).
+
+### 6.3 El giro de AGENTES a SKILLS
 
 Durante varias sesiones se construyó un enfoque **multi-agente** (cinco agentes,
 cada uno un LLM con tool-calling en loop). **Se abandonó — falló
@@ -692,7 +742,7 @@ contexto. LLM en producción: **Gemini Flash**.
 > v3** —no hay archivo ni router montado en `app.py`/`rutas.py`—. No fue una
 > limpieza ejecutada: nunca se portaron desde v2.
 
-### 6.3 Las 24 capacidades declaradas
+### 6.4 Las 24 capacidades declaradas
 
 Fuente autoritativa: `GET /api/capacidades` → **total: 24** (06/09). Una sola
 operación implementada: **`reunir`**.
@@ -726,7 +776,7 @@ estrategias (§11): describen el comportamiento del par que un catálogo de
 estrategias cruzaría con sus requisitos.
 
 **Coin (3):** `coin_estado`, `coin_historia`, `coin_mercados` — INDIVIDUAL,
-consulta al pedido (ver §6.6). Primeras capacidades sobre un objeto con id que no
+consulta al pedido (ver §6.7). Primeras capacidades sobre un objeto con id que no
 es BTC.
 
 Las cinco dimensiones de BTC son **independientes por diseño** (correlaciones
@@ -738,11 +788,11 @@ lecturas (comportamiento, funding, opciones, dominancia): reúne, no clasifica.
 > **Hallazgo (02/09): v3 tiene un solo evento de vigencia implementado,**
 > `cierre_vela_diaria`, y desde el 04/09 también **`refresco_de_coins`** (usado
 > por `mercado_dominancia` y las capacidades de coin deberían migrar a él). El
-> planificador corre 5 jobs (§6.5) y el diseño nombra 5 eventos (§7.2), pero como
+> planificador corre 5 jobs (§6.6) y el diseño nombra 5 eventos (§7.2), pero como
 > *eventos de invalidación de caché* recién ahora hay dos vivos. `cambio_universo`
 > sigue en el diseño, sin implementar.
 
-### 6.4 Posicionamiento (Deribit) — construido esta sesión
+### 6.5 Posicionamiento (Deribit) — construido esta sesión
 
 `backend/dominio/posicionamiento.py`, enganchado en `backend/app.py`. Dos
 capacidades INDIVIDUAL sobre `mercado`, vigencia `cierre_vela_diaria`. Son de
@@ -779,7 +829,7 @@ nada. Resultado final: max-pain 72k a −9,38% del spot.
   `objeto_id='mercado'`, `args={}`; las distingue la columna `capacidad`. Un
   DELETE debe filtrar por `capacidad`.
 
-### 6.5 El planificador — 5 jobs, disciplina de eventos ✅
+### 6.6 El planificador — 5 jobs, disciplina de eventos ✅
 
 `backend/nucleo/planificador.py`. El diseño (arquitectura §7) pedía "eventos, no relojes"; el
 código **ya lo implementa**, con los comentarios declarando el porqué de cada
@@ -799,7 +849,7 @@ dispara al levantarse dentro de 2 h; más tarde lo resuelve
 qué está en curso y huecos de historia. Verificado 2026-09-01: cadena
 `cierre_del_dia → velas → capacidades` intacta, sin huecos.
 
-### 6.6 Coin — capa INFORMACIÓN sobre una coin (construido esta sesión)
+### 6.7 Coin — capa INFORMACIÓN sobre una coin (construido esta sesión)
 
 `backend/dominio/coin.py`, enganchado en `backend/app.py`. Tres capacidades
 INDIVIDUAL sobre objeto `coin`, consulta **al pedido** (no masivas: el estado de
@@ -827,7 +877,7 @@ CoinGecko que el sync no trae.
 `_fuente_hasta` (queda `null`); agregar el `capturado_at` de `pares` cuando se
 retoque.
 
-### 6.7 Contexto macro y estado de BTC — dominancia + compuesta (construido esta sesión)
+### 6.8 Contexto macro y estado de BTC — dominancia + compuesta (construido esta sesión)
 
 Cierra la sección **Contexto macro** de la capa INFORMACIÓN y da la lectura de
 estado de BTC sin recurrir a un régimen.
@@ -867,7 +917,7 @@ mediciones subyacentes).
    el valor original. Ahora cualquier compuesta puede mezclar fuentes de cualquier
    granularidad — mejora permanente, no un parche.
 
-### 6.8 Sentimiento — dominancia de stablecoins, medida (construido esta sesión)
+### 6.9 Sentimiento — dominancia de stablecoins, medida (construido esta sesión)
 
 Cierra la fila "sentimiento" de Estado del mercado. **No** se usó un índice
 Fear & Greed de terceros: son compuestos opacos (cada fuente pondera distinto,
@@ -893,7 +943,7 @@ primera y la única señal nueva que hacía falta capturar.
 - Infraestructura de sectores lista para "capital por sector" (falta la operación
   `agregar` y resolver el solapamiento).
 
-### 6.9 On-chain — valuación de ciclo (construido esta sesión)
+### 6.10 On-chain — valuación de ciclo (construido esta sesión)
 
 La cara del Estado del Mercado que mira la **cadena**, no los mercados: cuánto
 vale BTC respecto del costo base agregado de sus tenedores, y en qué punto de su
@@ -932,7 +982,7 @@ dominancia, sentimiento miran los mercados).
   la primera métrica de esa fuente, incorporándola como segunda fuente on-chain.
   Dimensión nueva: presión de venta potencial vs. acumulación a cold storage.
 
-### 6.10 Correlación con tradicionales (construido esta sesión)
+### 6.11 Correlación con tradicionales (construido esta sesión)
 
 Cierra "cripto vs. tradicionales". Dice qué **tipo** de activo está siendo BTC:
 alta correlación con el S&P = risk-on; alta con el oro = refugio; baja con ambos
@@ -1203,7 +1253,7 @@ redacta.** Cuatro etapas:
    corto, salida JSON (`intencion`, `target`, `parametros`), `max_tokens` bajo. No
    redacta; decide.
 2. **Resolver target** (código) — "ONT" → coin_id "ontology" (en v3, la función
-   `resolver_coin` de §6.6, que es la fuente de verdad).
+   `resolver_coin` de §6.7, que es la fuente de verdad).
 3. **Ejecutar + destilar capacidades** (código, en paralelo) — la intención mapea
    a un set de capacidades. El código las resuelve por el motor y **destila**:
    toma sólo el carril `destila`, nunca la `presentacion`.
