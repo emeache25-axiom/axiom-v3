@@ -34,6 +34,7 @@ from backend.dominio import btc_intradia as dominio_intradia
 from backend.dominio import posicionamiento as dominio_posicionamiento
 from backend.dominio import coin as dominio_coin
 from backend.dominio import estado_mercado as dominio_estado_mercado
+from backend.dominio import sentimiento as dominio_sentimiento
 from backend.captura import universo, pares, bitcoin, opciones, funding
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,7 @@ class Axiom:
         dominio_posicionamiento.declarar()
         dominio_coin.declarar()
         dominio_estado_mercado.declarar()
+        dominio_sentimiento.declarar()
         problemas = capacidades.verificar()
         if problemas:
             raise RuntimeError(
@@ -300,7 +302,13 @@ class Axiom:
         except Exception:
             logger.exception("[app] capturar_global falló; sigo con coins")
             glob = {"guardado": False}
-        return {"coins": coins, "global": glob}
+        # Sectores seguidos (hoy: stablecoins, para la señal de sentimiento).
+        try:
+            sect = await universo.capturar_sectores(self.pool, self.fuentes)
+        except Exception:
+            logger.exception("[app] capturar_sectores falló; sigo")
+            sect = {"guardado": False}
+        return {"coins": coins, "global": glob, "sectores": sect}
 
     async def _inventariar_coins(self):
         return await universo.inventariar(self.pool, self.fuentes)

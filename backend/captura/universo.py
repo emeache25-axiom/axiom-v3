@@ -404,3 +404,81 @@ async def capturar_global(pool: asyncpg.Pool, cliente: ClienteFuentes) -> dict:
         "fecha": str(hoy),
         "dominancia_btc": m.get("dominancia_btc"),
     }
+
+# Hoy se captura SOLO este sector, para la señal de sentimiento. La lista puede
+# crecer cuando se ataque "capital por sector".
+
+
+_SECTORES_SEGUIDOS = {"stablecoins"}
+
+
+async def capturar_sectores(pool: asyncpg.Pool, cliente: ClienteFuentes) -> dict:
+    """
+    El market cap de los sectores seguidos, con el market cap TOTAL del mercado
+    del mismo instante. De /coins/categories (sectores) y /global (total).
+
+    Por qué el total va en la misma fila: la dominancia de un sector es
+    sector/total, y ambos deben ser del MISMO momento. Guardar el total acá hace
+    la señal AUTOCONTENIDA —una fila, una fecha— en vez de depender de un JOIN a
+    mercado_global que podría tener otra fecha. No dudamos de cuándo es un dato.
+
+    HOY guarda solo `stablecoins`: su market cap sobre el total es la dominancia
+    de stablecoins, la señal de sentimiento más transparente que tenemos.
+    """
+    # El total del mercado, del mismo instante que vamos a capturar los sectores.
+    total = None
+    rg = await cliente.pedir("coingecko", "global")
+    if rg.datos:
+        mapeo_g = _config.actual().mapeos.get("coingecko", {}).get("global", {})
+        mg = _mapear(rg.datos, mapeo_g)
+        total = mg.get("capitalizacion_total")
+    if total is None:
+        logger.warning("[universo] sectores: no pude obtener el total del "
+                       "mercado; sin denominador no guardo (evito una fila a "
+                       "medias que después mienta)")
+        return {"guardado": False, "motivo": "sin total de mercado"}
+
+    r = await cliente.pedir("coingecko", "categorias")
+    if not r.datos:
+        logger.info("[universo] /coins/categories no devolvió datos")
+        return {"guardado": False}
+
+    mapeo = _config.actual().mapeos.get("coingecko", {}).get("categorias", {})
+    hoy = _fecha_utc()
+    filas = []
+    for item in r.datos:
+        if item.get("id") not in _SECTORES_SEGUIDOS:
+            continue
+        m = _mapear(item, mapeo)
+        if not m.get("sector_id"):
+            continue
+        filas.append((
+            hoy, m["sector_id"], m.get("nombre"),
+            m.get("market_cap"), m.get("market_cap_change_24h"),
+            m.get("volumen"), total, _a_timestamp(m.get("fuente_updated_at")),
+        ))
+
+    if not filas:
+        logger.warning("[universo] ningún sector seguido en la respuesta: %s",
+                       _SECTORES_SEGUIDOS)
+        return {"guardado": False}
+
+    async with pool.acquire() as conn:
+        await conn.executemany("""
+            INSERT INTO sector_diaria (
+                fecha, sector_id, nombre, market_cap, market_cap_change_24h,
+                volumen, cap_total_momento, fuente_updated_at, capturado_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now())
+            ON CONFLICT (fecha, sector_id) DO UPDATE SET
+                nombre                = EXCLUDED.nombre,
+                market_cap            = EXCLUDED.market_cap,
+                market_cap_change_24h = EXCLUDED.market_cap_change_24h,
+                volumen               = EXCLUDED.volumen,
+                cap_total_momento     = EXCLUDED.cap_total_momento,
+                fuente_updated_at     = EXCLUDED.fuente_updated_at,
+                capturado_at          = now()
+        """, filas)
+
+    logger.info("[universo] sectores: %d guardado(s) (%s), total mercado %.0f",
+                len(filas), ", ".join(f[1] for f in filas), float(total))
+    return {"guardado": True, "fecha": str(hoy), "sectores": len(filas)}

@@ -84,6 +84,14 @@ fuentes:
         path: /global
         devuelve: objeto
         descripcion: Capitalización total, volumen y dominancia. De acá sale btc_dominance.
+      categorias:
+        path: /coins/categories
+        devuelve: coleccion
+        descripcion: >
+          Todas las categorías (sectores) de CoinGecko con market cap y volumen.
+          Las categorías SE SOLAPAN (una coin en varias); NO sumarlas como
+          particiones del mercado. Hoy se usa solo `stablecoins` (dominancia de
+          stables = señal de sentimiento).
 
     # ── Mapeo al vocabulario de AXIOM ────────────────────────────────────
     # La respuesta CRUDA se guarda entera; esto solo dice qué campo de la
@@ -121,6 +129,13 @@ fuentes:
         data.market_cap_percentage.eth:           dominancia_eth
         data.active_cryptocurrencies:             coins_activas_fuente
         data.updated_at:                          fuente_updated_at
+      categorias:
+        id:                    sector_id
+        name:                  nombre
+        market_cap:            market_cap
+        market_cap_change_24h: market_cap_change_24h
+        volume_24h:            volumen
+        updated_at:            fuente_updated_at
 
       ficha:
         id:                                       id
