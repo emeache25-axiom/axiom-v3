@@ -184,7 +184,7 @@ El fundacional (16/08) desglosó ~50 preguntas por las cuatro capas. Aquel mapa
 describía en buena parte lo que **v2** respondía. Abajo el mismo mapa con los
 estados **corregidos a lo que v3 responde hoy**, medido contra el server: v3 tiene
 6 módulos de dominio (`btc_intradia`, `mercado`, `par`, `posicionamiento`, `coin`,
-`estado_mercado`), 17 capacidades y una operación (`reunir`). Varias capacidades
+`estado_mercado`, `sentimiento`), 18 capacidades y una operación (`reunir`). Varias capacidades
 de sector/noticias/on-chain de v2 aún **no se portaron**.
 
 Marcas: ✅ v3 hoy · 🟡 el dato existe, falta exponerlo · ⏳ falta historia (sólo
@@ -205,7 +205,7 @@ DE SEÑAL, que es la distinción que sí se sostiene.*
 | **BTC** — posicionamiento en opciones | ❌ | ✅ **`btc_opciones`** (put/call + max-pain) |
 | **BTC** — lectura reunida ("¿cómo está BTC?") | ✅ régimen | ✅ **`btc_estado`** (reúne los 4, sin etiqueta) |
 | **Mercado** — reparto de capital (dominancia) | 🟡 | ✅ **`mercado_dominancia`** |
-| **Mercado** — sentimiento | 🟡 | ❌ fuente nueva |
+| **Mercado** — sentimiento | 🟡 | ✅ **`mercado_sentimiento`** (dominancia de stables, medida — no un índice opaco) |
 | **Mercado** — on-chain | 🟡 | ❌ fuente nueva (la de v2 era frágil) |
 | **Mercado** — cripto vs. tradicionales | ❌ | ❌ fuente nueva |
 | **Universo** — ecosistema / ¿cambió vs. ayer? | ⏳ | ⏳ historia acumulando |
@@ -647,7 +647,10 @@ activaba — se notó recién al haber por primera vez un frontend que servir.
 **Fuentes integradas (captura, 02/09):** CoinGecko (`universo` — coins), MEXC +
 CoinEx (`pares` — operables), Binance (`bitcoin` — velas y series de BTC),
 Deribit (`funding` + `opciones`), CoinGecko `/global` (dominancia). **Sin integrar:** noticias, desbloqueos/eventos
-temporales, on-chain, sentimiento, mercados tradicionales.
+Deribit (`funding` + `opciones`), CoinGecko `/global` (dominancia) y CoinGecko
+`/coins/categories` (sectores — hoy solo `stablecoins`, para sentimiento).
+**Sin integrar:** noticias, desbloqueos/eventos temporales, on-chain, mercados
+tradicionales.
 
 **Módulos de dominio vivos (6):** `btc_intradia`, `mercado`, `par`,
 `posicionamiento`, `coin`, `estado_mercado`. No hay módulo de coin, sector, universo-como-capacidad,
@@ -680,12 +683,12 @@ contexto. LLM en producción: **Gemini Flash**.
 > v3** —no hay archivo ni router montado en `app.py`/`rutas.py`—. No fue una
 > limpieza ejecutada: nunca se portaron desde v2.
 
-### 6.3 Las 17 capacidades declaradas
+### 6.3 Las 18 capacidades declaradas
 
-Fuente autoritativa: `GET /api/capacidades` → **total: 17** (04/09). Una sola
+Fuente autoritativa: `GET /api/capacidades` → **total: 18** (06/09). Una sola
 operación implementada: **`reunir`**.
 
-**Mercado / BTC-referencia (11):**
+**Mercado / BTC-referencia (12):**
 
 | Capacidad | Tipo | Mide (resumen) |
 |---|---|---|
@@ -700,6 +703,7 @@ operación implementada: **`reunir`**.
 | `btc_opciones` | simple | put/call + OI (contexto) y max-pain de corto plazo |
 | `mercado_dominancia` | simple | dominancia BTC/ETH, cap y volumen totales, cambio |
 | `btc_estado` | **compuesta** (`reunir`) | perfil + funding + opciones + dominancia, sin etiqueta |
+| `mercado_sentimiento` | simple | dominancia de stablecoins (señal de sentimiento medida) + percentil |
 
 **Par (3):** `oscilacion`, `rango_tipico`, `repetibilidad` — las tres **masivas**
 (todo el universo de pares por evento). Son "la mitad medida" de la ecuación de
@@ -847,6 +851,32 @@ mediciones subyacentes).
    (motor.py):** normalizar `date`→`datetime(UTC)` sólo para comparar, devolviendo
    el valor original. Ahora cualquier compuesta puede mezclar fuentes de cualquier
    granularidad — mejora permanente, no un parche.
+
+### 6.8 Sentimiento — dominancia de stablecoins, medida (construido esta sesión)
+
+Cierra la fila "sentimiento" de Estado del mercado. **No** se usó un índice
+Fear & Greed de terceros: son compuestos opacos (cada fuente pondera distinto,
+método propietario, no auditable), lo contrario del principio de AXIOM. En su
+lugar, el sentimiento se lee de **señales medidas y transparentes**; ésta es la
+primera y la única señal nueva que hacía falta capturar.
+
+- **Fuente:** endpoint `/coins/categories` de CoinGecko (`categorias` en
+  `fuentes.yaml`), del que hoy se captura **solo el sector `stablecoins`**. Las
+  categorías de CoinGecko se solapan (una coin en varias) y **no se pueden sumar**
+  como particiones del mercado — documentado para cuando se ataque "capital por
+  sector".
+- **Tabla `sector_diaria`** (mig 011) + columna `cap_total_momento` (mig 012).
+  Cada fila guarda el market cap del sector **y** el total del mercado del
+  **mismo instante**, así la dominancia (sector/total) se calcula de una sola
+  fila, sin JOIN. Decisión de fondo: un dato cuyo numerador y denominador son de
+  fechas distintas no se puede fechar — y no mostramos datos de los que dudemos
+  cuándo se actualizaron.
+- **`mercado_sentimiento`** — dominancia de stables con su percentil. Declara que
+  es UNA señal (las otras —funding, put/call, volatilidad— se leen en sus
+  capacidades) y que NO es un índice de miedo/codicia: no se colapsa en un número
+  con pesos inventados. Verificado: 10,8%, fechado al día de captura.
+- Infraestructura de sectores lista para "capital por sector" (falta la operación
+  `agregar` y resolver el solapamiento).
 
 ---
 
