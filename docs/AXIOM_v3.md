@@ -184,7 +184,7 @@ El fundacional (16/08) desglosó ~50 preguntas por las cuatro capas. Aquel mapa
 describía en buena parte lo que **v2** respondía. Abajo el mismo mapa con los
 estados **corregidos a lo que v3 responde hoy**, medido contra el server: v3 tiene
 6 módulos de dominio (`btc_intradia`, `mercado`, `par`, `posicionamiento`, `coin`,
-`estado_mercado`, `sentimiento`, `onchain`), 20 capacidades y una operación (`reunir`). Varias capacidades
+`estado_mercado`, `sentimiento`, `onchain`), 23 capacidades y una operación (`reunir`). Varias capacidades
 de sector/noticias/on-chain de v2 aún **no se portaron**.
 
 Marcas: ✅ v3 hoy · 🟡 el dato existe, falta exponerlo · ⏳ falta historia (sólo
@@ -206,7 +206,7 @@ DE SEÑAL, que es la distinción que sí se sostiene.*
 | **BTC** — lectura reunida ("¿cómo está BTC?") | ✅ régimen | ✅ **`btc_estado`** (reúne los 4, sin etiqueta) |
 | **Mercado** — reparto de capital (dominancia) | 🟡 | ✅ **`mercado_dominancia`** |
 | **Mercado** — sentimiento | 🟡 | ✅ **`mercado_sentimiento`** (dominancia de stables, medida — no un índice opaco) |
-| **Mercado** — on-chain | 🟡 | ✅ **`mercado_mvrv` + `mercado_nupl`** (bitcoin-data.com, valuación de ciclo). En curso: SOPR, Puell, ETF flows. Pendiente: LTH vs STH |
+| **Mercado** — on-chain | 🟡 | ✅ **5 métricas** (bitcoin-data.com): `mercado_mvrv`, `mercado_nupl`, `mercado_sopr`, `mercado_puell`, `mercado_etf_flujo`. Pendiente: LTH vs STH, flujos de exchange |
 | **Mercado** — cripto vs. tradicionales | ❌ | ❌ fuente nueva |
 | **Universo** — ecosistema / ¿cambió vs. ayer? | ⏳ | ⏳ historia acumulando |
 | **Universo** — régimen del universo operable | ✅ | ❌ necesita propiedades de conjunto (v2) |
@@ -644,19 +644,27 @@ en `/` sólo si la carpeta existe (`servidor.py`). *Bug corregido 05/09:* `_RAIZ
 tenía un `.parent` de más y apuntaba fuera del repo, por lo que el mount nunca se
 activaba — se notó recién al haber por primera vez un frontend que servir.
 
-**Fuentes integradas (captura, 02/09):** CoinGecko (`universo` — coins), MEXC +
-CoinEx (`pares` — operables), Binance (`bitcoin` — velas y series de BTC),
-Deribit (`funding` + `opciones`), CoinGecko `/global` (dominancia). **Sin integrar:** noticias, desbloqueos/eventos
-Deribit (`funding` + `opciones`), CoinGecko `/global` (dominancia) y CoinGecko
-`/coins/categories` (sectores — hoy solo `stablecoins`, para sentimiento) y
-bitcoin-data.com (on-chain: MVRV Z-Score, NUPL). **Sin integrar:** noticias,
-desbloqueos/eventos temporales, mercados tradicionales.
+**Mapa de fuentes (06/09).** Dos ejes: fuentes de **mercado** (qué pasa en los
+exchanges/agregadores) y de **cadena** (qué pasa on-chain). Cada una con su rol,
+sin superposición:
 
-**Módulos de dominio vivos (6):** `btc_intradia`, `mercado`, `par`,
-`posicionamiento`, `coin`, `estado_mercado`. No hay módulo de coin, sector, universo-como-capacidad,
-noticias ni estrategias. **Routers montados (3):** `capacidades`, `sistema`,
-`configuracion` — la app expone el motor de capacidades, no endpoints de
-coin/par/noticia/watchlist.
+| Fuente | Da | Eje |
+|---|---|---|
+| **CoinGecko** | precio/cap/ranking de coins (`universo`), dominancia (`/global`), sectores (`/coins/categories`) | mercado (agregador) |
+| **ccxt · MEXC, CoinEx** | pares operables: velas, libro, tickers, spread | mercado (operable) |
+| **ccxt · Binance** | velas y series de referencia de BTC | mercado (referencia) |
+| **ccxt · Deribit** | funding + opciones de BTC | mercado (derivados) |
+| **bitcoin-data.com** | on-chain de ciclo: MVRV-Z, NUPL, SOPR, Puell, ETF flow | cadena (calculada) |
+| **Coin Metrics Community** | *(carta guardada)* network data: direcciones, flujos de exchange | cadena (network) |
+| **Gemini, Groq** | el copiloto (clasificar/redactar) | LLM |
+
+*ccxt no da on-chain y on-chain no da mercado: son ejes distintos, sin hueco ni
+duplicación.* **Sin integrar aún:** noticias, desbloqueos/eventos temporales,
+cripto vs. tradicionales (Sharpe podría resolverlo — correlación BTC/SP500/oro).
+
+**Módulos de dominio vivos (7):** `btc_intradia`, `mercado`, `par`,
+`posicionamiento`, `coin`, `estado_mercado`, `sentimiento`, `onchain`. **Routers
+montados (4):** `capacidades`, `sistema`, `configuracion`, `copiloto`.
 
 ### 6.2 El giro de AGENTES a SKILLS
 
@@ -683,12 +691,12 @@ contexto. LLM en producción: **Gemini Flash**.
 > v3** —no hay archivo ni router montado en `app.py`/`rutas.py`—. No fue una
 > limpieza ejecutada: nunca se portaron desde v2.
 
-### 6.3 Las 20 capacidades declaradas
+### 6.3 Las 23 capacidades declaradas
 
-Fuente autoritativa: `GET /api/capacidades` → **total: 20** (06/09). Una sola
+Fuente autoritativa: `GET /api/capacidades` → **total: 23** (06/09). Una sola
 operación implementada: **`reunir`**.
 
-**Mercado / BTC-referencia (14):**
+**Mercado / BTC-referencia (17):**
 
 | Capacidad | Tipo | Mide (resumen) |
 |---|---|---|
@@ -706,6 +714,9 @@ operación implementada: **`reunir`**.
 | `mercado_sentimiento` | simple | dominancia de stablecoins (señal de sentimiento medida) + percentil |
 | `mercado_mvrv` | simple | MVRV Z-Score (valuación de ciclo, on-chain) + percentil sobre 4 años |
 | `mercado_nupl` | simple | NUPL (ganancia/pérdida no realizada del mercado) + percentil sobre 4 años |
+| `mercado_sopr` | simple | SOPR (flujo realizado: monedas movidas en ganancia/pérdida) + percentil |
+| `mercado_puell` | simple | Puell Multiple (ingresos de mineros vs. media anual) + percentil |
+| `mercado_etf_flujo` | simple | flujo neto de ETF de BTC (lectura de flujo: neto de ventana + racha) |
 
 **Par (3):** `oscilacion`, `rango_tipico`, `repetibilidad` — las tres **masivas**
 (todo el universo de pares por evento). Son "la mitad medida" de la ecuación de
@@ -897,26 +908,27 @@ dominancia, sentimiento miran los mercados).
 - **Tabla `onchain_diaria`** (mig 013), genérica por métrica. Se guarda la serie
   porque la fuente free sólo expone 4 años móviles; una vez capturada, la
   historia es nuestra. **Backfill**: 1461 puntos/métrica en una request.
-- **`mercado_mvrv`** (MVRV Z-Score) y **`mercado_nupl`** (NUPL) — valor actual +
-  percentil sobre 4 años. Verificado: MVRV-Z 0,89 (pct 42), NUPL 0,34 (pct 42) —
-  ambas coinciden: mercado en valuación media-baja de su ciclo. **Percentil real
-  desde el día uno** gracias al backfill (a diferencia de dominancia/sentimiento,
-  que arrancaron con una fila).
+- **`mercado_mvrv`** (MVRV Z-Score), **`mercado_nupl`** (NUPL) — valuación de
+  ciclo, valor + percentil sobre 4 años. **`mercado_sopr`** (flujo realizado) y
+  **`mercado_puell`** (mineros) — también nivel + percentil. **`mercado_etf_flujo`**
+  (flujo institucional de ETF) — lectura de FLUJO: neto de ventana + racha, sin
+  percentil (no aplica a un flujo). Historia: 4 años para las cuatro de cadena;
+  ETF desde 2024-01 (652 días — los ETF al contado se aprobaron entonces).
+- **Percentil real desde el día uno** gracias al backfill. Verificado (06/09): las
+  cinco convergen en la zona media del ciclo (MVRV pct 42, NUPL 42, SOPR 59, Puell
+  48) + ETF con +11.036 BTC netos en 7 días, racha 2d de entradas.
 - Declaran honestamente: dato **calculado por terceros** (no medido por AXIOM),
-  métrica de **ciclo largo** (no de trading), no predice.
+  métrica de **ciclo largo** (no de trading), no predicen.
 
-**En curso (elegidas, esperando cupo para capturar):** SOPR (flujo realizado:
-quién vende en ganancia/pérdida), Puell Multiple (presión de mineros), ETF flows
-(flujo institucional — la menos "on-chain", es su propia cosa). Cada una aporta un
-ángulo que MVRV/NUPL no tienen; se descartaron por redundantes MVRV simple,
-Reserve Risk, RHODL, Realized Price (este último ya está *dentro* de MVRV/NUPL —
-es el cost basis agregado).
-
-**Pendiente anotado:** **LTH vs STH** (tenedores de largo vs corto plazo).
-bitcoin-data lo tiene como supply por cohorte y como MVRV/SOPR por cohorte —
-definir al retomar cuál: distribución de tenencia (supply) o comportamiento por
-cohorte. Es de las señales de ciclo más ricas (acumulación de manos fuertes vs.
-distribución a débiles).
+**Pendientes anotados (enriquecimiento futuro):**
+- **LTH vs STH** (tenedores de largo vs corto plazo) — bitcoin-data lo tiene como
+  supply por cohorte y como MVRV/SOPR por cohorte. Definir al retomar: distribución
+  de tenencia (supply) o comportamiento por cohorte. Señal de ciclo rica
+  (acumulación de manos fuertes vs. distribución a débiles).
+- **Flujos de exchange** (entrada/salida neta de BTC de exchanges) — vía **Coin
+  Metrics Community** (`FlowInEx`/`FlowOutEx`, confirmados en el free tier). Sería
+  la primera métrica de esa fuente, incorporándola como segunda fuente on-chain.
+  Dimensión nueva: presión de venta potencial vs. acumulación a cold storage.
 
 ---
 
