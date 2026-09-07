@@ -184,7 +184,7 @@ El fundacional (16/08) desglosó ~50 preguntas por las cuatro capas. Aquel mapa
 describía en buena parte lo que **v2** respondía. Abajo el mismo mapa con los
 estados **corregidos a lo que v3 responde hoy**, medido contra el server: v3 tiene
 6 módulos de dominio (`btc_intradia`, `mercado`, `par`, `posicionamiento`, `coin`,
-`estado_mercado`, `sentimiento`, `onchain`, `correlacion`), 24 capacidades y una operación (`reunir`). Varias capacidades
+`estado_mercado`, `sentimiento`, `onchain`, `correlacion`, `flujo_exchanges`), 25 capacidades y una operación (`reunir`). Varias capacidades
 de sector/noticias/on-chain de v2 aún **no se portaron**.
 
 Marcas: ✅ v3 hoy · 🟡 el dato existe, falta exponerlo · ⏳ falta historia (sólo
@@ -206,7 +206,8 @@ DE SEÑAL, que es la distinción que sí se sostiene.*
 | **BTC** — lectura reunida ("¿cómo está BTC?") | ✅ régimen | ✅ **`btc_estado`** (reúne los 4, sin etiqueta) |
 | **Mercado** — reparto de capital (dominancia) | 🟡 | ✅ **`mercado_dominancia`** |
 | **Mercado** — sentimiento | 🟡 | ✅ **`mercado_sentimiento`** (dominancia de stables, medida — no un índice opaco) |
-| **Mercado** — on-chain | 🟡 | ✅ **5 métricas** (bitcoin-data.com): `mercado_mvrv`, `mercado_nupl`, `mercado_sopr`, `mercado_puell`, `mercado_etf_flujo`. Pendiente: LTH vs STH, flujos de exchange |
+| **Mercado** — on-chain | 🟡 | ✅ **5 métricas** (bitcoin-data.com): `mercado_mvrv`, `mercado_nupl`, `mercado_sopr`, `mercado_puell`, `mercado_etf_flujo`. Pendiente: LTH vs STH |
+| **Mercado** — flujo de exchanges | ❌ | ✅ **`mercado_flujo_exchanges`** (Coin Metrics): flujo neto + supply en exchanges, presión de venta vs. acumulación |
 | **Mercado** — cripto vs. tradicionales | ❌ | ✅ **`mercado_correlacion_tradfi`** (Sharpe: correlación BTC vs S&P/oro, ventana 30/60/90) |
 | **Universo** — ecosistema / ¿cambió vs. ayer? | ⏳ | ⏳ historia acumulando |
 | **Universo** — régimen del universo operable | ✅ | ❌ necesita propiedades de conjunto (v2) |
@@ -644,8 +645,8 @@ en `/` sólo si la carpeta existe (`servidor.py`). *Bug corregido 05/09:* `_RAIZ
 tenía un `.parent` de más y apuntaba fuera del repo, por lo que el mount nunca se
 activaba — se notó recién al haber por primera vez un frontend que servir.
 
-**Módulos de dominio vivos (7):** `btc_intradia`, `mercado`, `par`,
-`posicionamiento`, `coin`, `estado_mercado`, `sentimiento`, `onchain`, `correlacion`. **Routers
+**Módulos de dominio vivos (10):** `btc_intradia`, `mercado`, `par`,
+`posicionamiento`, `coin`, `estado_mercado`, `sentimiento`, `onchain`, `correlacion`, `flujo_exchanges`. **Routers
 montados (4):** `capacidades`, `sistema`, `configuracion`, `copiloto`.
 
 El catálogo de fuentes —qué da cada una, qué se descarta y por qué— está en §6.2.
@@ -691,12 +692,12 @@ público, pero de terceros (no medido por AXIOM).
   suelto (es el insumo de MVRV/NUPL).
 
 **Coin Metrics Community** · cadena (network) · REST **abierta sin key**, holgada
-(100/min). Free tier ACOTADO: sólo 31 métricas de BTC.
-- *Carta guardada (no usado aún):* flujos de exchange (`FlowInEx`/`FlowOutEx` —
-  presión de venta vs. acumulación, próximo frente), direcciones activas, supply en
-  exchanges, actividad de red.
-- *Verificado NO disponible en free:* cohortes LTH/STH, realized cap, NVT (son de
-  su producto pago).
+(100/min). Free tier ACOTADO: sólo 31 métricas de BTC. Marca los datos recientes
+flash/final (se guarda ese status — disciplina epistémica).
+- *Usado:* flujo de exchanges (`FlowInEx`/`FlowOutEx`) y supply en exchanges
+  (`SplyExNtv`) → `mercado_flujo_exchanges`.
+- *Disponible sin usar:* direcciones activas, actividad de red, transacciones.
+- *Verificado NO disponible en free:* cohortes LTH/STH, realized cap, NVT (pago).
 - *Rol futuro:* su catálogo consultable (`catalog-v2`) es candidato para el
   copiloto-agrega-métrica (network data).
 
@@ -742,12 +743,12 @@ contexto. LLM en producción: **Gemini Flash**.
 > v3** —no hay archivo ni router montado en `app.py`/`rutas.py`—. No fue una
 > limpieza ejecutada: nunca se portaron desde v2.
 
-### 6.4 Las 24 capacidades declaradas
+### 6.4 Las 25 capacidades declaradas
 
-Fuente autoritativa: `GET /api/capacidades` → **total: 24** (06/09). Una sola
+Fuente autoritativa: `GET /api/capacidades` → **total: 25** (07/09). Una sola
 operación implementada: **`reunir`**.
 
-**Mercado / BTC-referencia (18):**
+**Mercado / BTC-referencia (19):**
 
 | Capacidad | Tipo | Mide (resumen) |
 |---|---|---|
@@ -769,6 +770,7 @@ operación implementada: **`reunir`**.
 | `mercado_puell` | simple | Puell Multiple (ingresos de mineros vs. media anual) + percentil |
 | `mercado_etf_flujo` | simple | flujo neto de ETF de BTC (lectura de flujo: neto de ventana + racha) |
 | `mercado_correlacion_tradfi` | simple | correlación BTC vs S&P 500 y oro (risk-on/refugio/desacoplado) + percentil |
+| `mercado_flujo_exchanges` | simple | flujo neto de BTC a exchanges + supply en exchanges (presión venta vs. acumulación) |
 
 **Par (3):** `oscilacion`, `rango_tipico`, `repetibilidad` — las tres **masivas**
 (todo el universo de pares por evento). Son "la mitad medida" de la ecuación de
@@ -1004,6 +1006,26 @@ alta correlación con el S&P = risk-on; alta con el oro = refugio; baja con ambo
   ventanas coinciden.
 - Declara: correlación no es causalidad ni predicción, es móvil, y la calcula
   Sharpe (no AXIOM).
+
+### 6.12 Flujo de exchanges (construido esta sesión)
+
+¿El BTC se mueve hacia donde se vende, o se retira a guardar? Presión de venta
+potencial vs. acumulación. Primera integración de **Coin Metrics Community**.
+
+- **Fuente `coinmetrics`** — API abierta (sin key), holgada (~100/min), historia
+  larga. Free acotado (31 métricas; sin cohortes ni realized cap). Marca los datos
+  recientes **flash/final** — se guarda ese status (columna `status`, mig 015):
+  un flujo de ayer puede revisarse al consolidarse, y AXIOM lo declara.
+- **Tabla:** reusa `onchain_diaria` (métricas `flow_in_ex`, `flow_out_ex`,
+  `sply_ex`), historia desde 2022-09.
+- **`mercado_flujo_exchanges`** — dos lecturas: **flujo neto** (entradas − salidas,
+  lectura de flujo: neto de ventana + racha) y **supply en exchanges** (nivel:
+  percentil). El neto se calcula al leer, no se guarda derivado.
+- Verificado (07/09): salidas netas 4 días seguidos (−8.831 BTC/7d), supply en
+  exchanges en percentil 19 (mínimos) → acumulación de fondo. El último dato venía
+  `flash`, declarado.
+- No sabe: BTC entrando a un exchange no garantiza venta; la atribución de qué
+  direcciones son "de exchange" la hace Coin Metrics (heurística de terceros).
 
 ---
 
