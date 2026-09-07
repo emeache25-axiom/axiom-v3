@@ -37,9 +37,11 @@ from backend.dominio import estado_mercado as dominio_estado_mercado
 from backend.dominio import sentimiento as dominio_sentimiento
 from backend.dominio import onchain as dominio_onchain
 from backend.dominio import correlacion as dominio_correlacion
+from backend.dominio import flujo_exchanges as dominio_flujo_exchanges
 from backend.captura import universo
 from backend.captura import onchain as captura_onchain
-from backend.captura import correlacion as captura_correlacion, pares, bitcoin, opciones, funding
+from backend.captura import correlacion as captura_correlacion
+from backend.captura import coinmetrics as captura_coinmetrics, pares, bitcoin, opciones, funding
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +89,7 @@ class Axiom:
         dominio_sentimiento.declarar()
         dominio_onchain.declarar()
         dominio_correlacion.declarar()
+        dominio_flujo_exchanges.declarar()
         problemas = capacidades.verificar()
         if problemas:
             raise RuntimeError(
@@ -325,7 +328,12 @@ class Axiom:
         except Exception:
             logger.exception("[app] correlacion.actualizar falló; sigo")
             corr = {"actualizado": False}
-        return {"coins": coins, "global": glob, "sectores": sect, "onchain": onc, "correlacion": corr}
+        try:
+            cm = await captura_coinmetrics.actualizar(self.pool, self.fuentes)
+        except Exception:
+            logger.exception("[app] coinmetrics.actualizar falló; sigo")
+            cm = {"actualizado": False}
+        return {"coins": coins, "global": glob, "sectores": sect, "onchain": onc, "correlacion": corr, "flujo_ex": cm}
 
     async def _inventariar_coins(self):
         return await universo.inventariar(self.pool, self.fuentes)

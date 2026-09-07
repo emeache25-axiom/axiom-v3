@@ -252,6 +252,32 @@ fuentes:
         params_admite: [asset1, asset2, period]
 
   # ═══════════════════════════════════════════════════════════════════════
+  # Coin Metrics Community — network data on-chain (flujos y supply de exchanges).
+  # API pública abierta (sin key), holgada (~100/min). Free acotado: NO tiene
+  # cohortes LTH/STH ni realized cap (pago). Marca datos recientes flash/final.
+  coinmetrics:
+    tipo: rest
+    base_url: https://community-api.coinmetrics.io/v4
+    limites:
+      llamadas_por_minuto: 60
+      reintentos: 3
+      respeta_retry_after: true
+      espera_base_s: 2
+      espera_maxima_s: 60
+      timeout_s: 30
+    ofrece:    [flujo_exchanges, supply_exchanges, network_data]
+    no_ofrece: [cohortes_lth_sth, realized_cap, on_chain_valuacion]
+    endpoints:
+      asset_metrics:
+        path: /timeseries/asset-metrics
+        devuelve: objeto
+        params_fijos:
+          assets: btc
+          frequency: 1d
+          page_size: 10000
+        params_admite: [metrics, start_time, end_time, paging_from]
+
+  # ═══════════════════════════════════════════════════════════════════════
   # EXCHANGES — vía ccxt
   #
   # Agregar uno es agregar un bloque acá. Sin decodificador, sin código, sin
