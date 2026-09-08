@@ -206,7 +206,7 @@ DE SEÑAL, que es la distinción que sí se sostiene.*
 | **BTC** — lectura reunida ("¿cómo está BTC?") | ✅ régimen | ✅ **`btc_estado`** (reúne los 4, sin etiqueta) |
 | **Mercado** — reparto de capital (dominancia) | 🟡 | ✅ **`mercado_dominancia`** |
 | **Mercado** — sentimiento | 🟡 | ✅ **`mercado_sentimiento`** (dominancia de stables, medida — no un índice opaco) |
-| **Mercado** — on-chain | 🟡 | ✅ **5 métricas** (bitcoin-data.com): `mercado_mvrv`, `mercado_nupl`, `mercado_sopr`, `mercado_puell`, `mercado_etf_flujo`. Pendiente: LTH vs STH |
+| **Mercado** — on-chain | 🟡 | ✅ **5 métricas** (bitcoin-data.com): `mercado_mvrv`, `mercado_nupl`, `mercado_sopr`, `mercado_puell`, `mercado_etf_flujo`. LTH/STH: pendiente declarado (ver §6.10 — no hay fuente gratuita completa) |
 | **Mercado** — flujo de exchanges | ❌ | ✅ **`mercado_flujo_exchanges`** (Coin Metrics): flujo neto + supply en exchanges, presión de venta vs. acumulación |
 | **Mercado** — cripto vs. tradicionales | ❌ | ✅ **`mercado_correlacion_tradfi`** (Sharpe: correlación BTC vs S&P/oro, ventana 30/60/90) |
 | **Universo** — ecosistema / ¿cambió vs. ayer? | ⏳ | ⏳ historia acumulando |
@@ -974,15 +974,24 @@ dominancia, sentimiento miran los mercados).
 - Declaran honestamente: dato **calculado por terceros** (no medido por AXIOM),
   métrica de **ciclo largo** (no de trading), no predicen.
 
-**Pendientes anotados (enriquecimiento futuro):**
-- **LTH vs STH** (tenedores de largo vs corto plazo) — bitcoin-data lo tiene como
-  supply por cohorte y como MVRV/SOPR por cohorte. Definir al retomar: distribución
-  de tenencia (supply) o comportamiento por cohorte. Señal de ciclo rica
-  (acumulación de manos fuertes vs. distribución a débiles).
-- **Flujos de exchange** (entrada/salida neta de BTC de exchanges) — vía **Coin
-  Metrics Community** (`FlowInEx`/`FlowOutEx`, confirmados en el free tier). Sería
-  la primera métrica de esa fuente, incorporándola como segunda fuente on-chain.
-  Dimensión nueva: presión de venta potencial vs. acumulación a cold storage.
+**LTH/STH (tenedores largo vs corto plazo) — PENDIENTE DECLARADO (decisión 07/09).**
+La lectura completa es "qué tienen (supply por cohorte) + cómo están (MVRV/SOPR
+por cohorte)". Se evaluaron TODAS las fuentes y **ninguna da la lectura completa
+gratis y con API legítima**:
+- bitcoin-data: sólo el *comportamiento* (LTH/STH-MVRV, SOPR), NO el supply.
+- Coin Metrics free, CoinGecko, CoinStats: no tienen cohortes.
+- CoreCharts: las tiene con la mejor metodología, pero es workspace visual, **sin
+  API**.
+- Coinglass ($29/mes), Glassnode ($49–999/mes), CryptoQuant ($99/mes): completo,
+  pero de pago.
+- BRK (calcular desde nodo propio): lo daría todo y transparente, pero requiere un
+  nodo Bitcoin completo — **inviable en el hardware actual** (la notebook no da).
+
+Decisión, fiel a la disciplina: **no se mete LTH/STH a medias** (tener sólo el
+comportamiento y llamarlo "LTH/STH" sería la media verdad que AXIOM evita). Queda
+pendiente hasta tener nodo propio (BRK) o decidir pagar una fuente. **BRK es el
+norte para on-chain propio y completo** cuando AXIOM tenga un servidor de verdad:
+daría LTH/STH y todas las on-chain calculadas por nosotros, sin cupo ni terceros.
 
 ### 6.11 Correlación con tradicionales (construido esta sesión)
 
@@ -1422,6 +1431,15 @@ queda pendiente por decisión de enfoque:
 
 Con (1)+(3) ya se conversa con el mercado y se ven las respuestas. Formalizar (2)
 y luego (4)+(5) es lo que sigue.
+
+> **Oportunidad futura — fuentes vía MCP.** Varias plataformas exponen ya un
+> **MCP server** (Model Context Protocol) — CoinStats, CryptoQuant/cryptint, etc.
+> Un MCP deja que un LLM descubra e invoque herramientas/datos de forma
+> estandarizada. Cuando el copiloto llegue a "agregar una fuente/métrica"
+> conversando (parte del escalón 5), conectarse a un MCP externo permitiría traer
+> datos sin programar cada integración a mano — la versión más ambiciosa de "el
+> copiloto amplía lo que AXIOM sabe". Anotado como dirección, no para hoy: el
+> copiloto está en el escalón 1.
 
 > **Pendiente de diseño — conversaciones múltiples.** La UI hoy es una sola
 > conversación sin persistencia. Un sistema de varios chats con historial (como
