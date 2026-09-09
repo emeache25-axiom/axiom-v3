@@ -6,21 +6,24 @@ diseño completo en docs/AXIOM_v3.md §10.
 
 LA IDEA QUE LO HACE FUNCIONAR (y que hundió al multi-agente):
   El CÓDIGO orquesta; el LLM sólo entiende y redacta. El LLM nunca ve datasets
-  crudos ni decide qué capacidad ejecutar. Dos llamadas al LLM por turno —
-  clasificar y redactar— y nada más.
+  crudos. Dos llamadas al LLM por turno —clasificar y redactar— y nada más.
+
+EL COPILOTO DESCUBRE LAS CAPACIDADES DEL REGISTRO (no hay mapa hardcodeado):
+  El clasificador recibe el CATÁLOGO de capacidades consultables —leído del
+  registro, la única fuente de verdad— y elige cuáles responden la pregunta.
+  Agregar una capacidad NO requiere tocar el copiloto: si está declarada y es
+  consultable, el copiloto la conoce sola.
+
+  Preferencia por COMPUESTAS: si una compuesta declarada (btc_estado, btc_perfil)
+  cubre la pregunta, el LLM la usa —eficiente, cacheada, reproducible—. Si no hay
+  ninguna que encaje, compone al vuelo las simples que necesite. Las piezas
+  internas (dimensiones de una compuesta, consultable=False) no se ofrecen.
 
 LAS CUATRO ETAPAS:
-  1. clasificar  (LLM, JSON)  — mensaje + foco → intención + target
+  1. clasificar  (LLM, JSON)  — mensaje + foco + catálogo → capacidades + target
   2. resolver    (código)     — target textual → id concreto (resolver_coin)
-  3. ejecutar    (código)     — intención → capacidades, resueltas por el motor
-                                EN PARALELO. Junta valor + epistémica.
+  3. ejecutar    (código)     — resuelve las capacidades por el motor EN PARALELO
   4. redactar    (LLM, texto) — material + disciplina epistémica → respuesta
-
-SOBRE destila/presentacion:
-  El diseño (§5.4) separa el carril de razonamiento del de presentación. En v3
-  todavía NO está implementado: las capacidades devuelven un `valor` compacto
-  (10-15 campos, ya pensado para leerse) que sirve de destilado de hecho. Cuando
-  una capacidad necesite carriles distintos, se implementa. Hoy no hace falta.
 """
 from __future__ import annotations
 
@@ -34,166 +37,119 @@ logger = logging.getLogger(__name__)
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  MAPA DE INTENCIONES → CAPACIDADES
+#  CATÁLOGO — leído del registro (reemplaza al _MAPA hardcodeado)
 # ════════════════════════════════════════════════════════════════════════════
-# Qué capacidades resuelve cada intención. El código mapea; el LLM sólo eligió
-# la intención. Agregar una intención es agregar una entrada acá —y enseñarle al
-# clasificador que existe (INTENCIONES abajo)—.
-#
-# `objeto`: cómo se arma el arg de la capacidad.
-#   "mercado" → sin target (btc_estado, dominancia son del mercado, no de una coin)
-#   "coin"    → el target resuelto va como {"coin_id": ...}
-_MAPA = {
-    "estado_btc": {
-        "capacidades": ["btc_estado"],
-        "objeto": "mercado",
-    },
-    "posicionamiento_btc": {
-        "capacidades": ["btc_funding", "btc_opciones"],
-        "objeto": "mercado",
-    },
-    "dominancia": {
-        "capacidades": ["mercado_dominancia"],
-        "objeto": "mercado",
-    },
-    "info_coin": {
-        "capacidades": ["coin_estado", "coin_mercados"],
-        "objeto": "coin",
-    },
-    "historia_coin": {
-        "capacidades": ["coin_historia"],
-        "objeto": "coin",
-    },
-}
+def _catalogo(motor) -> list[dict]:
+    """
+    Las capacidades CONSULTABLES del registro. Las internas (consultable=False,
+    p. ej. las dimensiones de btc_perfil) no entran.
+    """
+    cat = []
+    for c in motor.registro.listar():
+        if not c.get("consultable", True):
+            continue
+        cat.append({
+            "nombre": c["nombre"],
+            "objeto": c["objeto"],
+            "tipo": c["tipo"],
+            "descripcion": c["descripcion"],
+        })
+    return cat
 
-# Lo que el clasificador puede elegir. "otro" es la salida honesta cuando no
-# encaja en ninguna — el copiloto lo dice, no inventa.
-INTENCIONES = list(_MAPA) + ["otro"]
+
+def _objeto_de(motor, nombre: str):
+    try:
+        return motor.registro.obtener(nombre).objeto.value
+    except Exception:
+        return None
 
 
 # ════════════════════════════════════════════════════════════════════════════
 #  ETAPA 1 — CLASIFICAR (LLM, JSON)
 # ════════════════════════════════════════════════════════════════════════════
 _SYS_CLASIFICAR = """\
-Sos el clasificador de un asistente de análisis de mercado cripto. Tu ÚNICA
-tarea es leer el mensaje del usuario y devolver un JSON compacto con:
+Sos el clasificador de AXIOM, un asistente de análisis de mercado cripto. Te doy
+el mensaje del usuario y el CATÁLOGO de capacidades disponibles (cada una con qué
+responde). Tu tarea: elegir qué capacidad(es) responden la pregunta.
 
-  "intencion": una de [{intenciones}]
-  "target":    el símbolo o nombre de la coin si la hay, o null
+Devolvé SOLO un JSON compacto:
+  "capacidades": ["nombre1", "nombre2", ...]   // las que responden; [] si ninguna
+  "target":      "símbolo o nombre de coin"     // si es sobre una coin, o null
 
 Reglas:
-- estado_btc: cómo está / qué hace Bitcoin en general.
-- posicionamiento_btc: funding, opciones, apalancamiento, max-pain de BTC.
-- dominancia: dominancia de BTC, reparto del mercado, BTC vs alts.
-- info_coin: qué es / precio / dónde se opera una coin concreta (que no sea BTC).
-- historia_coin: cómo viene una coin en el tiempo, su evolución.
-- otro: cualquier cosa que no encaje.
-
-Si el mensaje se refiere a "esta"/"lo"/"la" y hay un objeto en foco, usá ese
-objeto como target.
+- Elegí las MÍNIMAS capacidades que respondan bien. No sumes de más.
+- Si una capacidad COMPUESTA cubre la pregunta, PREFERILA sobre sus piezas
+  sueltas. Ej: "¿cómo está bitcoin?" → una sola capacidad de estado, no cinco.
+- Para preguntas amplias ("¿cómo está el mercado?") podés elegir varias.
+- Si la pregunta es sobre una coin específica (no BTC como mercado), poné su
+  símbolo/nombre en "target" y elegí las capacidades de objeto "coin".
+- Si el mensaje se refiere a "esta"/"lo"/"la" y hay objeto en foco, usalo de target.
+- Si NINGUNA capacidad responde la pregunta, devolvé "capacidades": [].
 
 Devolvé SOLO el JSON, sin texto alrededor."""
 
 
-async def clasificar(llm: LLM, mensaje: str, foco: dict | None = None) -> dict:
-    """
-    Mensaje (+ foco) → {intencion, target}. Una llamada LLM, salida JSON.
+async def clasificar(llm: LLM, motor, mensaje: str,
+                     foco: dict | None = None) -> dict:
+    catalogo = _catalogo(motor)
+    lineas = [f'- {c["nombre"]} ({c["objeto"]}, {c["tipo"]}): {c["descripcion"]}'
+              for c in catalogo]
+    nombres_validos = {c["nombre"] for c in catalogo}
 
-    El foco resuelve referencias: "¿cómo lo ves?" con foco {par: ROSE/BTC} se
-    clasifica como el análisis de ese objeto.
-    """
-    sys = _SYS_CLASIFICAR.format(intenciones=", ".join(INTENCIONES))
-    prompt = f'Mensaje: "{mensaje}"'
+    prompt = ('CATÁLOGO:\n' + "\n".join(lineas) +
+              f'\n\nMensaje del usuario: "{mensaje}"')
     if foco:
-        prompt += f"\nObjeto en foco: {json.dumps(foco, ensure_ascii=False)}"
+        prompt += f'\nObjeto en foco: {json.dumps(foco, ensure_ascii=False)}'
 
     try:
-        r = await llm.completar_json(prompt, nivel="rapido", system=sys, max_tokens=300)
+        r = await llm.completar_json(prompt, nivel="rapido",
+                                     system=_SYS_CLASIFICAR, max_tokens=300)
     except LLMError as e:
         logger.warning("[copiloto] clasificar falló: %s", e)
-        return {"intencion": "otro", "target": None, "_error": str(e)}
+        return {"capacidades": [], "target": None, "_error": str(e)}
 
-    intencion = r.get("intencion")
-    if intencion not in INTENCIONES:
-        # El LLM inventó una intención fuera del catálogo: tratar como "otro"
-        # en vez de romper. Se declara para no ocultarlo.
-        logger.warning("[copiloto] intención desconocida: %r", intencion)
-        return {"intencion": "otro", "target": r.get("target"),
-                "_intencion_cruda": intencion}
-    return {"intencion": intencion, "target": r.get("target")}
+    elegidas = r.get("capacidades") or []
+    validas = [n for n in elegidas if n in nombres_validos]
+    if len(validas) != len(elegidas):
+        logger.warning("[copiloto] capacidades inventadas, descartadas: %s",
+                       set(elegidas) - nombres_validos)
+    return {"capacidades": validas, "target": r.get("target")}
 
 
 # ════════════════════════════════════════════════════════════════════════════
 #  ETAPA 2 — RESOLVER TARGET (código)
 # ════════════════════════════════════════════════════════════════════════════
-async def resolver(pool, intencion: str, target: str | None) -> dict:
-    """
-    Target textual → args para las capacidades.
-
-    Para intenciones de coin, resuelve el texto ("eth") a coin_id ("ethereum")
-    usando resolver_coin —la fuente de verdad—. Para intenciones de mercado, no
-    hay target que resolver.
-
-    Devuelve {"args": {...}, "coin": {...}|None, "error": str|None}.
-    """
-    spec = _MAPA.get(intencion)
-    if not spec or spec["objeto"] == "mercado":
+async def resolver(pool, motor, capacidades, target):
+    necesita_coin = any(_objeto_de(motor, n) == "coin" for n in capacidades)
+    if not necesita_coin:
         return {"args": {}, "coin": None, "error": None}
-
-    # objeto == "coin": necesita resolver el target.
     if not target:
-        return {"args": {}, "coin": None,
-                "error": "no dijiste de qué coin"}
-
+        return {"args": {}, "coin": None, "error": "no dijiste de qué coin"}
     from backend.dominio.coin import resolver_coin
     coin = await resolver_coin(pool, target)
     if coin is None:
-        return {"args": {}, "coin": None,
-                "error": f"no encontré la coin '{target}'"}
+        return {"args": {}, "coin": None, "error": f"no encontré la coin '{target}'"}
     return {"args": {"coin_id": coin["id"]}, "coin": coin, "error": None}
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  ETAPA 3 — EJECUTAR + JUNTAR (código, en paralelo)
+#  ETAPA 3 — EJECUTAR (código, en paralelo)
 # ════════════════════════════════════════════════════════════════════════════
-async def ejecutar(motor, intencion: str, args: dict) -> list[dict]:
-    """
-    Resuelve las capacidades de la intención EN PARALELO por el motor.
-
-    Cada capacidad devuelve DOS cosas separadas (el destila/presentacion del
-    diseño §5.4, que acá aparece en su primer uso real):
-      · `valor`    — los números. Van al redactor Y al frontend.
-      · `no_sabe`  — los límites textuales. Van SÓLO al frontend (widget), NO al
-                     redactor: pasarle diez párrafos de límites al LLM infla el
-                     prompt y lo hace truncar. El redactor respeta los límites
-                     por su system, no por recibir cada uno transcripto.
-
-    Si una falla, se registra su error en vez de tumbar todo.
-    """
-    spec = _MAPA.get(intencion)
-    if not spec:
-        return []
-
-    async def _una(nombre: str) -> dict:
+async def ejecutar(motor, capacidades, args):
+    async def _una(nombre):
         try:
-            r = await motor.resolver(nombre, args)
+            a = args if _objeto_de(motor, nombre) == "coin" else {}
+            r = await motor.resolver(nombre, a)
             return {"capacidad": nombre, "valor": r.valor,
                     "no_sabe": r.no_sabe, "fuente_hasta": _fh(r.fuente_hasta),
                     "ok": True}
         except Exception as e:
             logger.warning("[copiloto] %s falló: %s", nombre, e)
             return {"capacidad": nombre, "error": str(e), "ok": False}
+    return await asyncio.gather(*(_una(n) for n in capacidades))
 
-    return await asyncio.gather(*(_una(n) for n in spec["capacidades"]))
 
-
-def _para_redactor(material: list[dict]) -> list[dict]:
-    """
-    Adelgaza el material para el LLM: sólo capacidad + valor (los números), sin
-    los `no_sabe` textuales. Lo que el redactor necesita para redactar es el
-    DATO; los límites los respeta por instrucción, no por recibir párrafos.
-    Esto evita el truncamiento y da respuestas concisas, no volcados de datos.
-    """
+def _para_redactor(material):
     fino = []
     for m in material:
         if m.get("ok"):
@@ -254,69 +210,48 @@ Reglas de honestidad (obligatorias):
 - Nada de disclaimers ni de "como modelo de IA".
 
 CUANDO NO HAY DATOS (el mensaje no corresponde a ninguna capacidad, o falta un
-dato): explicá con precisión y sobriedad qué podés responder —estado de BTC, su
-funding y opciones, la dominancia del mercado, e información e historia de una
-coin— y pedí una consulta concreta. Mismo registro profesional: sin jovialidad,
-sin disculpas exageradas, sin muletillas.
+dato): explicá con precisión y sobriedad qué podés responder —estado del mercado
+y de BTC, funding y opciones, dominancia, sentimiento, on-chain, correlación con
+tradicionales, flujo de exchanges, e info e historia de una coin— y pedí una
+consulta concreta. Mismo registro profesional: sin jovialidad, sin disculpas
+exageradas, sin muletillas.
 """
 
 
-async def redactar(llm: LLM, mensaje: str, material: list[dict],
-                   contexto: dict | None = None) -> str:
-    """
-    Material medido (ADELGAZADO: sólo valores, ver _para_redactor) + disciplina
-    epistémica → respuesta breve. Una llamada.
-    """
-    payload = {
-        "mensaje_del_usuario": mensaje,
-        "datos_medidos": _para_redactor(material),
-    }
+async def redactar(llm, mensaje, material, contexto=None):
+    payload = {"mensaje_del_usuario": mensaje, "datos_medidos": _para_redactor(material)}
     if contexto:
         payload["contexto"] = contexto
     prompt = json.dumps(payload, ensure_ascii=False)
-    return await llm.completar(prompt, nivel="rapido", system=_SYS_REDACTAR, max_tokens=1200)
+    return await llm.completar(prompt, nivel="rapido",
+                               system=_SYS_REDACTAR, max_tokens=1200)
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  ORQUESTADOR — une las cuatro etapas
+#  ORQUESTADOR
 # ════════════════════════════════════════════════════════════════════════════
-async def responder(llm: LLM, motor, pool, mensaje: str,
-                    foco: dict | None = None) -> dict:
-    """
-    El flujo completo: clasificar → resolver → ejecutar → redactar.
+async def responder(llm, motor, pool, mensaje, foco=None):
+    clas = await clasificar(llm, motor, mensaje, foco)
+    capacidades, target = clas["capacidades"], clas.get("target")
 
-    Devuelve {texto, intencion, target, material, widgets} — el frontend usa
-    `texto` para el hilo y `widgets` (por ahora los nombres de las capacidades
-    que respondieron) para montar las vistas cuando exista el catálogo (§10.5).
-    """
-    # 1. Clasificar
-    clas = await clasificar(llm, mensaje, foco)
-    intencion, target = clas["intencion"], clas.get("target")
-
-    if intencion == "otro":
-        texto = await redactar(llm, mensaje, [], contexto={
-            "nota": "el mensaje no corresponde a ninguna capacidad disponible; "
-                    "explicá brevemente qué SÍ podés responder: estado de BTC, "
-                    "su funding/opciones, dominancia del mercado, e info e "
-                    "historia de una coin"})
-        return {"texto": texto, "intencion": intencion, "target": target,
+    if not capacidades:
+        ctx = {"nota": "el mensaje no corresponde a ninguna capacidad disponible"}
+        if clas.get("_error"):
+            ctx = {"problema": "el asistente no está disponible ahora; reintentá"}
+        texto = await redactar(llm, mensaje, [], contexto=ctx)
+        return {"texto": texto, "capacidades": [], "target": target,
                 "material": [], "widgets": []}
 
-    # 2. Resolver target
-    res = await resolver(pool, intencion, target)
+    res = await resolver(pool, motor, capacidades, target)
     if res["error"]:
-        texto = await redactar(llm, mensaje, [], contexto={
-            "problema": res["error"]})
-        return {"texto": texto, "intencion": intencion, "target": target,
+        texto = await redactar(llm, mensaje, [], contexto={"problema": res["error"]})
+        return {"texto": texto, "capacidades": capacidades, "target": target,
                 "material": [], "widgets": []}
 
-    # 3. Ejecutar capacidades (paralelo)
-    material = await ejecutar(motor, intencion, res["args"])
-
-    # 4. Redactar
+    material = await ejecutar(motor, capacidades, res["args"])
     ctx = {"coin": res["coin"]["nombre"]} if res.get("coin") else None
     texto = await redactar(llm, mensaje, material, contexto=ctx)
 
     widgets = [m["capacidad"] for m in material if m.get("ok")]
-    return {"texto": texto, "intencion": intencion, "target": target,
+    return {"texto": texto, "capacidades": capacidades, "target": target,
             "material": material, "widgets": widgets}

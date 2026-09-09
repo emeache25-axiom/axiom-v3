@@ -189,6 +189,11 @@ class Capacidad:
     propiedad: Propiedad = field(default_factory=Propiedad)
     parametros: dict[str, Any] = field(default_factory=dict)
     alcance: Alcance = Alcance.INDIVIDUAL
+    # Si el copiloto la ofrece como respuesta directa. False para piezas
+    # internas (las dimensiones de una compuesta: btc_direccion sólo tiene
+    # sentido dentro de btc_perfil, no como respuesta suelta). El registro la
+    # sigue conociendo y ejecutando; sólo no se destaca al usuario.
+    consultable: bool = True
 
     @property
     def es_compuesta(self) -> bool:
@@ -378,6 +383,7 @@ class RegistroCapacidades:
                 "tipo": "compuesta" if c.es_compuesta else "simple",
                 "alcance": c.alcance.value,
                 "descripcion": c.descripcion,
+                "consultable": c.consultable,
                 "operacion": getattr(c, "operacion", None),
                 "componentes": getattr(c, "componentes", None),
                 "parametros": c.parametros or None,

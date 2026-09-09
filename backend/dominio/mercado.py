@@ -304,7 +304,7 @@ def declarar() -> None:
     """Se llama una vez al arrancar."""
 
     registro.registrar(Simple(
-        nombre="btc_direccion", objeto=Objeto.MERCADO, funcion=_direccion,
+        nombre="btc_direccion", objeto=Objeto.MERCADO, consultable=False, funcion=_direccion,
         alcance=Alcance.INDIVIDUAL, parametros=_PARAMS,
         descripcion="Cuánto se desplazó el precio de BTC en la ventana",
         propiedad=Propiedad(unidad="%", direccion=Direccion.NEUTRA,
@@ -322,7 +322,7 @@ def declarar() -> None:
             metodo="cierre contra cierre; no considera lo que pasó adentro")))
 
     registro.registrar(Simple(
-        nombre="btc_volatilidad", objeto=Objeto.MERCADO, funcion=_volatilidad,
+        nombre="btc_volatilidad", objeto=Objeto.MERCADO, consultable=False, funcion=_volatilidad,
         alcance=Alcance.INDIVIDUAL, parametros=_PARAMS,
         descripcion="Cuánto se mueve BTC día a día, anualizado",
         propiedad=Propiedad(unidad="% anualizado",
@@ -340,7 +340,7 @@ def declarar() -> None:
                    "distinto")))
 
     registro.registrar(Simple(
-        nombre="btc_estructura", objeto=Objeto.MERCADO, funcion=_estructura,
+        nombre="btc_estructura", objeto=Objeto.MERCADO, consultable=False, funcion=_estructura,
         alcance=Alcance.INDIVIDUAL, parametros=_PARAMS,
         descripcion="Si BTC recorre y vuelve, o se desplaza en línea recta",
         propiedad=Propiedad(unidad="0-1", direccion=Direccion.CONTEXTUAL,
@@ -359,7 +359,7 @@ def declarar() -> None:
                    "puede ser muy volátil y no ir a ningún lado")))
 
     registro.registrar(Simple(
-        nombre="btc_posicion", objeto=Objeto.MERCADO, funcion=_posicion,
+        nombre="btc_posicion", objeto=Objeto.MERCADO, consultable=False, funcion=_posicion,
         alcance=Alcance.INDIVIDUAL, parametros=_PARAMS,
         descripcion="A qué distancia está BTC de su máximo histórico",
         propiedad=Propiedad(unidad="%", direccion=Direccion.CONTEXTUAL,
@@ -381,7 +381,7 @@ def declarar() -> None:
                    "máximo")))
 
     registro.registrar(Simple(
-        nombre="btc_participacion", objeto=Objeto.MERCADO,
+        nombre="btc_participacion", objeto=Objeto.MERCADO, consultable=False,
         funcion=_participacion, alcance=Alcance.INDIVIDUAL, parametros=_PARAMS,
         descripcion="Si el volumen reciente es alto o bajo contra su media",
         propiedad=Propiedad(unidad="ratio", direccion=Direccion.CONTEXTUAL,
