@@ -62,17 +62,26 @@ async def listar_capacidades(request: Request) -> dict:
 
 @capacidades.post("/capacidad/{nombre}")
 async def ejecutar_capacidad(nombre: str, request: Request,
-                             pedido: PedidoCapacidad | None = None) -> Any:
+                             pedido: PedidoCapacidad | None = None,
+                             para: str = "destila") -> Any:
     """
     Resuelve CUALQUIER capacidad declarada.
 
     Una sola ruta para todas: agregar una capacidad no requiere endpoint nuevo.
+    `para=presentacion` pide la vista para el widget (resumen + serie histórica);
+    el default `destila` es el resumen (lo que consume el copiloto).
     """
     motor = request.app.state.axiom.motor
     args = pedido.model_dump() if pedido else {}
     objeto_id = args.pop("objeto_id", None)
 
     try:
+        # La presentación (serie histórica para el widget) NO pasa por el caché
+        # de valores —que guarda el resumen destila—: se resuelve directo y se
+        # pide on-demand cuando el frontend va a graficar.
+        if para == "presentacion":
+            r = await motor.resolver(nombre, {**args, "para": "presentacion"})
+            return r.a_dict()
         # Primero el caché: una capacidad masiva sobre 3.000 pares tarda
         # segundos, y recalcularla en cada consulta HTTP sería absurdo cuando
         # el valor no cambió. La vigencia decide, no el que llama.

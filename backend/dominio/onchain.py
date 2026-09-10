@@ -24,12 +24,12 @@ import logging
 
 from backend.nucleo.capacidades import (
     registro, Simple, Objeto, Direccion, Epistemico, Propiedad, Vigencia,
-    Alcance)
+    Alcance, Presentacion)
 
 logger = logging.getLogger(__name__)
 
 
-async def _leer_metrica(pool, metrica: str) -> dict:
+async def _leer_metrica(pool, metrica: str, para: str = "destila") -> dict:
     """
     Valor actual de una métrica on-chain y su percentil contra toda la historia
     guardada. Devuelve el dict común a mvrv y nupl.
@@ -57,7 +57,7 @@ async def _leer_metrica(pool, metrica: str) -> dict:
 
     vals_ord = sorted(vals)
     n = len(vals_ord)
-    return {
+    resultado = {
         "valor": round(actual, 4),
         "percentil": percentil,
         "minimo_historico": round(vals_ord[0], 4),
@@ -67,10 +67,16 @@ async def _leer_metrica(pool, metrica: str) -> dict:
         "desde": str(serie[0][0]),
         "_fuente_hasta": fecha_actual,
     }
+    # Para el widget: la serie histórica (que ya está en memoria). Al LLM
+    # (destila) NO se le manda —lo ahogaría—; sólo cuando se pide presentacion.
+    if para == "presentacion":
+        resultado["serie"] = [{"fecha": str(f), "valor": round(v, 4)}
+                              for f, v in serie]
+    return resultado
 
 
-async def _mvrv(contexto, **_) -> dict:
-    return await _leer_metrica(contexto["pool"], "mvrv_zscore")
+async def _mvrv(contexto, para="destila", **_) -> dict:
+    return await _leer_metrica(contexto["pool"], "mvrv_zscore", para)
 
 
 async def _nupl(contexto, **_) -> dict:
@@ -144,6 +150,7 @@ def declarar() -> None:
         nombre="mercado_mvrv", objeto=Objeto.MERCADO,
         funcion=_mvrv, alcance=Alcance.INDIVIDUAL,
         parametros={},
+        presentacion=Presentacion(tipo="serie_nivel", unidad="z-score"),
         descripcion="MVRV Z-Score de BTC: valuación del mercado respecto de su "
                     "costo base agregado, y su posición en su ciclo histórico",
         propiedad=Propiedad(unidad="z-score", direccion=Direccion.CONTEXTUAL),

@@ -79,16 +79,27 @@ class Motor:
                 f"resolver '{nombre}' — probablemente hay un ciclo")
 
         cap = self.registro.obtener(nombre)
-        args = self._validar_args(cap, args or {})
+        args = dict(args or {})
+        # `para` no es un parámetro de negocio de la capacidad, es una directiva
+        # de CÓMO entregar el resultado (destila para el LLM, presentacion para
+        # el widget). Se extrae antes de validar para que no lo rechace ni lo
+        # descarte _validar_args, y se propaga aparte.
+        para = args.pop("para", "destila")
+        args = self._validar_args(cap, args)
 
         if isinstance(cap, Compuesta):
-            return await self._resolver_compuesta(cap, args, _profundidad)
-        return await self._resolver_simple(cap, args)
+            return await self._resolver_compuesta(cap, args, _profundidad, para)
+        return await self._resolver_simple(cap, args, para)
 
     # ── Simples ─────────────────────────────────────────────────────────────
-    async def _resolver_simple(self, cap: Simple, args: dict) -> Resultado:
+    async def _resolver_simple(self, cap: Simple, args: dict,
+                               para: str = "destila") -> Resultado:
         ahora = datetime.now(timezone.utc)
-        valor = await cap.funcion(contexto=self.contexto, **args)
+        valor = await cap.funcion(contexto=self.contexto, para=para, **args)
+        # Si se pidió presentación, la función ya incluyó la serie en el valor;
+        # se le adjunta el TIPO declarado para que el frontend sepa cómo dibujar.
+        if isinstance(valor, dict) and para == "presentacion":
+            valor["_presentacion"] = cap.presentacion.tipo
 
         # Una capacidad puede devolver el valor solo, o el valor con su
         # `fuente_hasta`. Lo segundo es preferible y lo primero es aceptable.
@@ -112,7 +123,7 @@ class Motor:
 
     # ── Compuestas ──────────────────────────────────────────────────────────
     async def _resolver_compuesta(self, cap: Compuesta, args: dict,
-                                  prof: int) -> Resultado:
+                                  prof: int, para: str = "destila") -> Resultado:
         ahora = datetime.now(timezone.utc)
         op = self.registro._operaciones.get(cap.operacion)
         if op is None:

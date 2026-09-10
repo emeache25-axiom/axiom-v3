@@ -160,6 +160,28 @@ class Propiedad:
 
 
 @dataclass(frozen=True)
+class Presentacion:
+    """
+    Cómo se DIBUJA una capacidad en el frontend. Metadata declarativa (no código):
+    el motor y el frontend la usan para representar la capacidad, y el copiloto,
+    cuando cree una capacidad, elige un `tipo` de este conjunto cerrado.
+
+    tipo:
+      serie_nivel  — un valor + su percentil, con la serie histórica (línea).
+      serie_flujo  — flujo con signo (barras +/-), neto y racha.
+      comparacion  — varias series juntas (BTC vs S&P/oro).
+      lista        — filas (pares donde se opera una coin).
+      reunion      — grilla de sub-presentaciones (una compuesta).
+    """
+    tipo: str = "serie_nivel"
+    unidad: str = ""
+
+    @property
+    def declarada(self) -> bool:
+        return bool(self.tipo)
+
+
+@dataclass(frozen=True)
 class Vigencia:
     """
     Hasta cuándo vale un resultado.
@@ -194,6 +216,7 @@ class Capacidad:
     # sentido dentro de btc_perfil, no como respuesta suelta). El registro la
     # sigue conociendo y ejecutando; sólo no se destaca al usuario.
     consultable: bool = True
+    presentacion: Presentacion = field(default_factory=Presentacion)
 
     @property
     def es_compuesta(self) -> bool:
@@ -384,6 +407,7 @@ class RegistroCapacidades:
                 "alcance": c.alcance.value,
                 "descripcion": c.descripcion,
                 "consultable": c.consultable,
+                "presentacion": c.presentacion.tipo,
                 "operacion": getattr(c, "operacion", None),
                 "componentes": getattr(c, "componentes", None),
                 "parametros": c.parametros or None,
