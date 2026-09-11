@@ -69,9 +69,13 @@ async def _leer_metrica(pool, metrica: str, para: str = "destila") -> dict:
     }
     # Para el widget: la serie histórica (que ya está en memoria). Al LLM
     # (destila) NO se le manda —lo ahogaría—; sólo cuando se pide presentacion.
+    # El sparkline resumen no necesita los ~1500 puntos: se acota a la ventana
+    # reciente. El panel de detalle (futuro) pedirá la serie completa.
     if para == "presentacion":
+        recorte = serie[-90:] if len(serie) > 90 else serie
         resultado["serie"] = [{"fecha": str(f), "valor": round(v, 4)}
-                              for f, v in serie]
+                              for f, v in recorte]
+        resultado["serie_dias"] = len(recorte)
     return resultado
 
 

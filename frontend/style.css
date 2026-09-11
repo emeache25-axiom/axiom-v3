@@ -280,3 +280,7 @@ body {
 }
 .conversacion::-webkit-scrollbar-thumb:hover { background: var(--tenue); }
 .conversacion { scrollbar-width: thin; scrollbar-color: var(--panel-bd) transparent; }
+
+/* Sparkline inline del widget (vistazo; el detalle va en panel aparte) */
+.widget-spark { margin-top: 8px; }
+.spark { display: block; opacity: 0.85; }

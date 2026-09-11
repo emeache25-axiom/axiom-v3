@@ -175,6 +175,12 @@ class Presentacion:
     """
     tipo: str = "serie_nivel"
     unidad: str = ""
+    # Cómo se muestran los campos del valor: [{clave, etiqueta, formato}].
+    # Vacío = el frontend usa auto-etiquetas (snake_case -> Título) y formato
+    # por defecto. Declarar campos es refinamiento, no requisito: sin ellos la
+    # capacidad se ve bien igual. Formatos: num, pct, pct_hist, usd, signo,
+    # texto, fecha. Es lo que el copiloto declara al crear una capacidad.
+    campos: list = field(default_factory=list)
 
     @property
     def declarada(self) -> bool:
@@ -408,6 +414,7 @@ class RegistroCapacidades:
                 "descripcion": c.descripcion,
                 "consultable": c.consultable,
                 "presentacion": c.presentacion.tipo,
+                "presentacion_campos": c.presentacion.campos or None,
                 "operacion": getattr(c, "operacion", None),
                 "componentes": getattr(c, "componentes", None),
                 "parametros": c.parametros or None,

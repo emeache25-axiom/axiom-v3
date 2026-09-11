@@ -140,8 +140,14 @@ async def ejecutar(motor, capacidades, args):
         try:
             a = args if _objeto_de(motor, nombre) == "coin" else {}
             r = await motor.resolver(nombre, a)
+            # La presentación (cómo dibujar) viaja con el material: el frontend
+            # renderiza por tipo+campos sin saber de capacidades concretas.
+            cap = motor.registro.obtener(nombre)
+            pres = cap.presentacion
             return {"capacidad": nombre, "valor": r.valor,
                     "no_sabe": r.no_sabe, "fuente_hasta": _fh(r.fuente_hasta),
+                    "presentacion": {"tipo": pres.tipo, "campos": pres.campos},
+                    "titulo": cap.descripcion,
                     "ok": True}
         except Exception as e:
             logger.warning("[copiloto] %s falló: %s", nombre, e)
