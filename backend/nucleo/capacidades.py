@@ -222,6 +222,9 @@ class Capacidad:
     # sentido dentro de btc_perfil, no como respuesta suelta). El registro la
     # sigue conociendo y ejecutando; sólo no se destaca al usuario.
     consultable: bool = True
+    # Nombre corto y legible para el widget (la descripcion es larga).
+    # Si no se declara, el frontend cae a la descripcion.
+    titulo: str = ""
     presentacion: Presentacion = field(default_factory=Presentacion)
 
     @property
@@ -415,6 +418,7 @@ class RegistroCapacidades:
                 "consultable": c.consultable,
                 "presentacion": c.presentacion.tipo,
                 "presentacion_campos": c.presentacion.campos or None,
+                "titulo": c.titulo or None,
                 "operacion": getattr(c, "operacion", None),
                 "componentes": getattr(c, "componentes", None),
                 "parametros": c.parametros or None,

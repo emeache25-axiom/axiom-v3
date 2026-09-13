@@ -147,7 +147,7 @@ async def ejecutar(motor, capacidades, args):
             return {"capacidad": nombre, "valor": r.valor,
                     "no_sabe": r.no_sabe, "fuente_hasta": _fh(r.fuente_hasta),
                     "presentacion": {"tipo": pres.tipo, "campos": pres.campos},
-                    "titulo": cap.descripcion,
+                    "titulo": cap.titulo or cap.descripcion,
                     "ok": True}
         except Exception as e:
             logger.warning("[copiloto] %s falló: %s", nombre, e)

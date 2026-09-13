@@ -34,7 +34,7 @@ import logging
 
 from backend.nucleo.capacidades import (
     registro, Simple, Objeto, Direccion, Epistemico, Propiedad, Vigencia,
-    Alcance)
+    Alcance, Presentacion)
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,7 @@ async def _sentimiento_stables(contexto, ventana=30, **_) -> dict:
     # Percentil del valor actual dentro de la ventana: fracción de días por
     # debajo. Dominancia ALTA = más miedo; el percentil lo sitúa en su historia.
     menores = sum(1 for d in vals if d < dom_actual)
-    percentil = round(menores / len(vals), 3)
+    percentil = round(menores / len(vals) * 100, 1)  # 0-100, como el resto
 
     cambio_pp = None
     if len(vals) >= 2:
@@ -106,6 +106,14 @@ def declarar() -> None:
 
     registro.registrar(Simple(
         nombre="mercado_sentimiento", objeto=Objeto.MERCADO,
+        titulo="Sentimiento (stables)",
+        presentacion=Presentacion(tipo="serie_nivel", campos=[
+            {"clave": "dominancia_stables_pct", "etiqueta": "Dominancia stables", "formato": "pct"},
+            {"clave": "percentil_actual", "etiqueta": "Percentil", "formato": "pct_hist"},
+            {"clave": "cambio_pp_ventana", "etiqueta": "Cambio", "formato": "signo"},
+            {"clave": "minimo_ventana", "etiqueta": "Mínimo", "formato": "pct"},
+            {"clave": "maximo_ventana", "etiqueta": "Máximo", "formato": "pct"},
+        ]),
         funcion=_sentimiento_stables, alcance=Alcance.INDIVIDUAL,
         parametros={"ventana": VENTANA},
         descripcion="Sentimiento medido vía dominancia de stablecoins: qué "

@@ -25,7 +25,7 @@ import logging
 
 from backend.nucleo.capacidades import (
     registro, Simple, Compuesta, Objeto, Direccion, Epistemico, Propiedad,
-    Vigencia, Alcance)
+    Vigencia, Alcance, Presentacion)
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +94,15 @@ def declarar() -> None:
 
     registro.registrar(Simple(
         nombre="mercado_dominancia", objeto=Objeto.MERCADO,
+        titulo="Dominancia del mercado",
+        presentacion=Presentacion(tipo="serie_nivel", campos=[
+            {"clave": "dominancia_btc", "etiqueta": "Dominancia BTC", "formato": "pct"},
+            {"clave": "dominancia_eth", "etiqueta": "Dominancia ETH", "formato": "pct"},
+            {"clave": "cambio_pp_ventana", "etiqueta": "Cambio BTC", "formato": "signo"},
+            {"clave": "capitalizacion_total", "etiqueta": "Cap. total", "formato": "usd"},
+            {"clave": "volumen_total", "etiqueta": "Volumen 24h", "formato": "usd"},
+            {"clave": "coins_activas_fuente", "etiqueta": "Coins activas", "formato": "num"},
+        ]),
         funcion=_dominancia, alcance=Alcance.INDIVIDUAL,
         parametros={"ventana": VENTANA},
         descripcion="Qué parte del mercado es BTC (y ETH), y cómo cambió esa "

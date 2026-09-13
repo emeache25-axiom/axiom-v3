@@ -83,16 +83,16 @@ async def _mvrv(contexto, para="destila", **_) -> dict:
     return await _leer_metrica(contexto["pool"], "mvrv_zscore", para)
 
 
-async def _nupl(contexto, **_) -> dict:
-    return await _leer_metrica(contexto["pool"], "nupl")
+async def _nupl(contexto, para="destila", **_) -> dict:
+    return await _leer_metrica(contexto["pool"], "nupl", para)
 
 
-async def _sopr(contexto, **_) -> dict:
-    return await _leer_metrica(contexto["pool"], "sopr")
+async def _sopr(contexto, para="destila", **_) -> dict:
+    return await _leer_metrica(contexto["pool"], "sopr", para)
 
 
-async def _puell(contexto, **_) -> dict:
-    return await _leer_metrica(contexto["pool"], "puell_multiple")
+async def _puell(contexto, para="destila", **_) -> dict:
+    return await _leer_metrica(contexto["pool"], "puell_multiple", para)
 
 
 async def _etf_flujo(contexto, dias=7, **_) -> dict:
@@ -154,7 +154,14 @@ def declarar() -> None:
         nombre="mercado_mvrv", objeto=Objeto.MERCADO,
         funcion=_mvrv, alcance=Alcance.INDIVIDUAL,
         parametros={},
-        presentacion=Presentacion(tipo="serie_nivel", unidad="z-score"),
+        titulo="MVRV",
+        presentacion=Presentacion(tipo="serie_nivel", campos=[
+            {"clave": "valor", "etiqueta": "MVRV Z-Score", "formato": "num"},
+            {"clave": "percentil", "etiqueta": "Percentil", "formato": "pct_hist"},
+            {"clave": "minimo_historico", "etiqueta": "Mínimo", "formato": "num"},
+            {"clave": "maximo_historico", "etiqueta": "Máximo", "formato": "num"},
+            {"clave": "mediana_historica", "etiqueta": "Mediana", "formato": "num"},
+        ]),
         descripcion="MVRV Z-Score de BTC: valuación del mercado respecto de su "
                     "costo base agregado, y su posición en su ciclo histórico",
         propiedad=Propiedad(unidad="z-score", direccion=Direccion.CONTEXTUAL),
@@ -183,6 +190,14 @@ def declarar() -> None:
         nombre="mercado_nupl", objeto=Objeto.MERCADO,
         funcion=_nupl, alcance=Alcance.INDIVIDUAL,
         parametros={},
+        titulo="NUPL",
+        presentacion=Presentacion(tipo="serie_nivel", campos=[
+            {"clave": "valor", "etiqueta": "NUPL", "formato": "num"},
+            {"clave": "percentil", "etiqueta": "Percentil", "formato": "pct_hist"},
+            {"clave": "minimo_historico", "etiqueta": "Mínimo", "formato": "num"},
+            {"clave": "maximo_historico", "etiqueta": "Máximo", "formato": "num"},
+            {"clave": "mediana_historica", "etiqueta": "Mediana", "formato": "num"},
+        ]),
         descripcion="NUPL de BTC: ganancia/pérdida no realizada del mercado, y "
                     "su posición en su ciclo histórico",
         propiedad=Propiedad(unidad="fracción", direccion=Direccion.CONTEXTUAL,
@@ -209,6 +224,14 @@ def declarar() -> None:
         nombre="mercado_sopr", objeto=Objeto.MERCADO,
         funcion=_sopr, alcance=Alcance.INDIVIDUAL,
         parametros={},
+        titulo="SOPR",
+        presentacion=Presentacion(tipo="serie_nivel", campos=[
+            {"clave": "valor", "etiqueta": "SOPR", "formato": "num"},
+            {"clave": "percentil", "etiqueta": "Percentil", "formato": "pct_hist"},
+            {"clave": "minimo_historico", "etiqueta": "Mínimo", "formato": "num"},
+            {"clave": "maximo_historico", "etiqueta": "Máximo", "formato": "num"},
+            {"clave": "mediana_historica", "etiqueta": "Mediana", "formato": "num"},
+        ]),
         descripcion="SOPR de BTC: de las monedas que se movieron, si se mueven "
                     "en ganancia o pérdida, y su posición en su historia",
         propiedad=Propiedad(unidad="ratio", direccion=Direccion.CONTEXTUAL),
@@ -231,6 +254,14 @@ def declarar() -> None:
         nombre="mercado_puell", objeto=Objeto.MERCADO,
         funcion=_puell, alcance=Alcance.INDIVIDUAL,
         parametros={},
+        titulo="Puell Multiple",
+        presentacion=Presentacion(tipo="serie_nivel", campos=[
+            {"clave": "valor", "etiqueta": "Puell", "formato": "num"},
+            {"clave": "percentil", "etiqueta": "Percentil", "formato": "pct_hist"},
+            {"clave": "minimo_historico", "etiqueta": "Mínimo", "formato": "num"},
+            {"clave": "maximo_historico", "etiqueta": "Máximo", "formato": "num"},
+            {"clave": "mediana_historica", "etiqueta": "Mediana", "formato": "num"},
+        ]),
         descripcion="Puell Multiple de BTC: ingresos de mineros contra su media "
                     "anual, y su posición en su historia",
         propiedad=Propiedad(unidad="ratio", direccion=Direccion.CONTEXTUAL),
